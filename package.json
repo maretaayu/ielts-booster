@@ -1,0 +1,18 @@
+{
+  "name": "ielts-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "All-in-one IELTS learning platform — accelerate to higher band",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev:api": "pnpm --filter api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20"
+  }
+}

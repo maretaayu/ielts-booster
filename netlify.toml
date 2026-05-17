@@ -1,0 +1,17 @@
+# Netlify config for the Next.js web app inside a pnpm monorepo.
+# Set NEXT_PUBLIC_API_URL in the Netlify UI to your Render API URL once deployed.
+
+[build]
+  base    = "apps/web"
+  command = "corepack enable && pnpm install --frozen-lockfile --filter web... && pnpm --filter web build"
+  publish = "apps/web/.next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PNPM_FLAGS = "--shamefully-hoist"
+  # Tell pnpm to look at the workspace root.
+  NPM_FLAGS = "--prefix=/dev/null"
+
+# The official Next.js plugin handles SSR, ISR, and image optimization.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

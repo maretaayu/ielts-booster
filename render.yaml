@@ -1,0 +1,46 @@
+# Render Blueprint for the Fastify API service.
+# Apply with: Render dashboard → New → Blueprint → connect repo.
+
+services:
+  - type: web
+    name: ielts-api
+    runtime: node
+    plan: starter # ~$7/mo with always-on; use `free` for sleeping free tier
+    region: singapore # closest to Indonesia
+    rootDir: .
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter api build
+    startCommand: pnpm --filter api start
+    healthCheckPath: /health
+    envVars:
+      # Render injects PORT automatically — server falls back to API_PORT then 4000.
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Set these in the Render dashboard (mark sensitive ones as secret):
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash-lite
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false # set to https://<your-api>.onrender.com/auth/google/callback
+      - key: WEB_ORIGIN
+        sync: false # set to your Netlify URL once deployed, comma-separated for multiple
+      - key: DEFAULT_TZ
+        value: Asia/Jakarta
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_AGENT_ID
+        sync: false

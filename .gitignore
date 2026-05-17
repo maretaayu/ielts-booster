@@ -1,0 +1,35 @@
+# dependencies
+node_modules
+.pnpm-store
+
+# build outputs
+.next
+dist
+build
+out
+
+# env
+.env
+.env.local
+.env.*.local
+*-service-account.json
+firebase-admin-key.json
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# turbo / vercel
+.turbo
+.vercel
+
+# misc
+coverage
+*.tsbuildinfo

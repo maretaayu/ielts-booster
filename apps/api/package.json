@@ -1,0 +1,30 @@
+{
+  "name": "api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.47.0",
+    "@fastify/cors": "^10.0.1",
+    "@google/generative-ai": "^0.21.0",
+    "@ielts/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "firebase-admin": "^13.0.2",
+    "googleapis": "^171.4.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "pino-pretty": "^11.3.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

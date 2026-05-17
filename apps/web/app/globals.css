@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  height: 100%;
+}
+
+body {
+  @apply font-sans text-ink antialiased;
+  background: linear-gradient(180deg, #f6f1fb 0%, #fdf3f6 60%, #fbf6f0 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+main {
+  position: relative;
+  z-index: 1;
+}
+
+@layer components {
+  .glass {
+    @apply bg-white border border-black/[0.06] shadow-soft;
+  }
+  .glass-strong {
+    @apply bg-white border border-black/[0.06] shadow-soft;
+  }
+  .btn-pill {
+    @apply inline-flex items-center gap-2 rounded-full bg-ink text-white px-5 py-2.5 text-sm font-medium hover:bg-ink-soft transition;
+  }
+  .btn-pill-ghost {
+    @apply inline-flex items-center gap-2 rounded-full bg-white border border-black/[0.08] text-ink px-5 py-2.5 text-sm font-medium hover:bg-stone-50 transition;
+  }
+  .icon-pill {
+    @apply inline-flex items-center justify-center rounded-full bg-white border border-black/[0.08] h-10 w-10 hover:bg-stone-50 transition;
+  }
+}
