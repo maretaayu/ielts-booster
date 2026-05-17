@@ -2,15 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, Bell, BookOpen, Mic, PenLine, Sparkles } from "lucide-react";
-import type { Attempt, StudyPlan, UserProfile } from "@ielts/shared";
+import {
+  ArrowUpRight,
+  Bell,
+  BookOpen,
+  ChevronRight,
+  Mic,
+  PenLine,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import type { Attempt, SpeakingSession, StudyPlan, UserProfile } from "@ielts/shared";
 import {
   api,
   getActivePlanId,
   getOrCreateUserId,
   isOnboarded,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { bandColor, cn, formatBand } from "@/lib/utils";
 import { BottomNav } from "@/components/BottomNav";
 
 type LoadState<T> = { status: "loading" | "ready" | "error"; data: T | null };
@@ -46,14 +56,28 @@ export default function Home() {
   const plan = useLoad<StudyPlan | null>(() =>
     onboarded && planId ? api.getStudyPlan(planId) : null,
   );
-  // Pre-fetch attempts (used to compute completion %) but don't render a list.
-  useLoad<{ attempts: Attempt[] } | null>(() => (onboarded ? api.listAttempts(userId) : null));
+  const attempts = useLoad<{ attempts: Attempt[] } | null>(() =>
+    onboarded ? api.listAttempts(userId) : null,
+  );
+  const speaking = useLoad<{ sessions: SpeakingSession[] } | null>(() =>
+    onboarded ? api.listSpeakingSessions(userId) : null,
+  );
 
   return (
     <div className="mx-auto max-w-md sm:max-w-lg px-6 pt-7 pb-32 sm:pb-28">
       <TopBar name={profile.data?.name} />
       <ContinueCard profileState={profile} planState={plan} />
+      <ProgressCard
+        attempts={attempts.data?.attempts ?? []}
+        sessions={speaking.data?.sessions ?? []}
+        ready={attempts.status !== "loading" && speaking.status !== "loading"}
+      />
       <PracticeGrid />
+      <RecentStrip
+        attempts={attempts.data?.attempts ?? []}
+        sessions={speaking.data?.sessions ?? []}
+        ready={attempts.status !== "loading" && speaking.status !== "loading"}
+      />
       <BottomNav active="home" />
     </div>
   );
@@ -240,6 +264,243 @@ function PracticeGrid() {
             </div>
           </Link>
         ))}
+      </div>
+    </section>
+  );
+}
+
+type ScoredItem = {
+  kind: "writing" | "speaking";
+  id: string;
+  title: string;
+  createdAt: string;
+  band: number;
+};
+
+function collectScored(attempts: Attempt[], sessions: SpeakingSession[]): ScoredItem[] {
+  const w: ScoredItem[] = attempts
+    .filter((a) => a.status === "graded" && a.result)
+    .map((a) => ({
+      kind: "writing" as const,
+      id: a.id,
+      title: a.promptSnapshot.title,
+      createdAt: a.createdAt,
+      band: a.result!.overallBand,
+    }));
+  const s: ScoredItem[] = sessions
+    .filter((sess) => sess.status === "scored" && sess.score)
+    .map((sess) => ({
+      kind: "speaking" as const,
+      id: sess.id,
+      title: sess.topicSnapshot.title,
+      createdAt: sess.createdAt,
+      band: sess.score!.overallBand,
+    }));
+  return [...w, ...s].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function ProgressCard({
+  attempts,
+  sessions,
+  ready,
+}: {
+  attempts: Attempt[];
+  sessions: SpeakingSession[];
+  ready: boolean;
+}) {
+  const scored = useMemo(() => collectScored(attempts, sessions), [attempts, sessions]);
+  const recent = scored.slice(-7);
+  const latest = recent[recent.length - 1]?.band;
+  const prev = recent[recent.length - 2]?.band;
+  const delta = latest != null && prev != null ? latest - prev : null;
+  const avg =
+    recent.length > 0 ? recent.reduce((s, x) => s + x.band, 0) / recent.length : null;
+
+  return (
+    <section className="mt-5">
+      <div className="bg-white rounded-3xl border border-black/[0.06] shadow-soft p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink/55">
+            Progress
+          </div>
+          <Link
+            href="/dashboard"
+            className="text-[11px] text-ink/55 inline-flex items-center gap-0.5"
+          >
+            History <ChevronRight className="h-3 w-3" />
+          </Link>
+        </div>
+
+        {!ready ? (
+          <div className="h-16 rounded-xl bg-stone-100 animate-pulse" />
+        ) : latest == null ? (
+          <div className="py-3 text-sm text-ink/55">
+            No graded attempts yet — start a session to see your trend.
+          </div>
+        ) : (
+          <div className="flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] text-ink/55">Latest band</div>
+              <div className="mt-0.5 flex items-baseline gap-2">
+                <span className={cn("text-4xl font-bold tracking-tight", bandColor(latest))}>
+                  {formatBand(latest)}
+                </span>
+                {delta != null && delta !== 0 && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-0.5 text-xs font-semibold",
+                      delta > 0 ? "text-emerald-600" : "text-rose-600",
+                    )}
+                  >
+                    {delta > 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    )}
+                    {(delta > 0 ? "+" : "") + delta.toFixed(1)}
+                  </span>
+                )}
+              </div>
+              {avg != null && (
+                <div className="mt-1 text-[11px] text-ink/55">
+                  Avg {formatBand(avg)} over last {recent.length}
+                </div>
+              )}
+            </div>
+            <div className="shrink-0">
+              <Sparkline values={recent.map((r) => r.band)} />
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  if (values.length < 2) {
+    return <div className="h-10 w-28 rounded-md bg-stone-100" />;
+  }
+  const W = 112;
+  const H = 40;
+  const P = 4;
+  const min = Math.min(...values) - 0.25;
+  const max = Math.max(...values) + 0.25;
+  const range = max - min || 1;
+  const xs = values.map((_, i) => P + ((W - P * 2) * i) / (values.length - 1));
+  const ys = values.map((v) => H - P - ((H - P * 2) * (v - min)) / range);
+  const path = values.map((_, i) => `${i === 0 ? "M" : "L"} ${xs[i]} ${ys[i]}`).join(" ");
+  const area = `${path} L ${xs[xs.length - 1]} ${H} L ${xs[0]} ${H} Z`;
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden>
+      <defs>
+        <linearGradient id="spark-fill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#spark-fill)" />
+      <path d={path} fill="none" stroke="#8b5cf6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <circle
+        cx={xs[xs.length - 1]}
+        cy={ys[ys.length - 1]}
+        r={3}
+        fill="#8b5cf6"
+        stroke="white"
+        strokeWidth={2}
+      />
+    </svg>
+  );
+}
+
+function RecentStrip({
+  attempts,
+  sessions,
+  ready,
+}: {
+  attempts: Attempt[];
+  sessions: SpeakingSession[];
+  ready: boolean;
+}) {
+  const all = useMemo(() => {
+    const w = attempts
+      .filter((a) => a.status === "graded" && a.result)
+      .map((a) => ({
+        kind: "writing" as const,
+        id: a.id,
+        title: a.promptSnapshot.title,
+        createdAt: a.createdAt,
+        band: a.result!.overallBand,
+      }));
+    const s = sessions
+      .filter((sess) => sess.status === "scored" && sess.score)
+      .map((sess) => ({
+        kind: "speaking" as const,
+        id: sess.id,
+        title: sess.topicSnapshot.title,
+        createdAt: sess.createdAt,
+        band: sess.score!.overallBand,
+      }));
+    return [...w, ...s]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 3);
+  }, [attempts, sessions]);
+
+  if (!ready) {
+    return (
+      <section className="mt-8">
+        <div className="h-32 rounded-3xl bg-white/55 animate-pulse" />
+      </section>
+    );
+  }
+  if (all.length === 0) return null;
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="text-xl font-bold tracking-tight">Recent</h3>
+        <Link href="/dashboard" className="text-xs font-medium text-ink/55 hover:text-ink">
+          All →
+        </Link>
+      </div>
+      <div className="bg-white rounded-3xl border border-black/[0.06] shadow-soft overflow-hidden">
+        <ul className="divide-y divide-black/[0.05]">
+          {all.map((it) => (
+            <li key={`${it.kind}:${it.id}`}>
+              <Link
+                href={it.kind === "writing" ? `/result/${it.id}` : `/speak/result/${it.id}`}
+                className="flex items-center gap-3 px-4 py-3 hover:bg-stone-50 transition"
+              >
+                <div
+                  className={cn(
+                    "h-9 w-9 rounded-xl flex items-center justify-center shrink-0",
+                    it.kind === "writing"
+                      ? "bg-rose-100 text-rose-700"
+                      : "bg-emerald-100 text-emerald-700",
+                  )}
+                >
+                  {it.kind === "writing" ? (
+                    <PenLine className="h-4 w-4" />
+                  ) : (
+                    <Mic className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-ink truncate">{it.title}</div>
+                  <div className="text-[11px] text-ink/50 mt-0.5">
+                    {new Date(it.createdAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </div>
+                </div>
+                <span className={cn("text-lg font-bold tracking-tight", bandColor(it.band))}>
+                  {formatBand(it.band)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );
