@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -53,7 +53,15 @@ const SKILL_LABEL: Record<SkillArea, { label: string; icon: React.ComponentType<
   grammar: { label: "Grammar", icon: GraduationCap },
 };
 
-export default function Onboarding() {
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-[100dvh]" />}>
+      <Onboarding />
+    </Suspense>
+  );
+}
+
+function Onboarding() {
   const router = useRouter();
   const search = useSearchParams();
   const [step, setStep] = useState(0);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -9,7 +9,7 @@ import { Loader2 } from "lucide-react";
  * by mistake. The real callback handler lives on the API at
  * /auth/google/callback. We just bounce the user back to /plan.
  */
-export default function GoogleCallbackBouncer() {
+function GoogleCallbackBouncerInner() {
   const router = useRouter();
   const search = useSearchParams();
 
@@ -28,5 +28,19 @@ export default function GoogleCallbackBouncer() {
     <div className="min-h-[100dvh] flex items-center justify-center text-ink/60">
       <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing sign-in…
     </div>
+  );
+}
+
+export default function GoogleCallbackBouncer() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[100dvh] flex items-center justify-center text-ink/60">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing sign-in…
+        </div>
+      }
+    >
+      <GoogleCallbackBouncerInner />
+    </Suspense>
   );
 }
