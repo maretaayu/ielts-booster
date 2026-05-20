@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { bandColor, cn, formatBand } from "@/lib/utils";
 import { BottomNav } from "@/components/BottomNav";
+import { LevelLadderCard } from "@/components/LevelLadder";
 
 type LoadState<T> = { status: "loading" | "ready" | "error"; data: T | null };
 
@@ -82,9 +83,22 @@ export default function Home() {
     return <div className="mx-auto max-w-md px-6 pt-20 text-center text-ink/40 text-sm">Redirecting…</div>;
   }
 
+  const placementBand = profile.data?.placement?.estimatedBand ?? profile.data?.currentBand ?? 5.5;
+  const targetBand = profile.data?.targetBand ?? 7.0;
+  const totalExercises = (attempts.data?.attempts.length ?? 0) + (speaking.data?.sessions.length ?? 0);
+
   return (
     <div className="mx-auto max-w-md sm:max-w-lg px-6 pt-7 pb-32 sm:pb-28">
       <TopBar name={profile.data?.name} />
+      
+      {hydrated && profile.status === "ready" && (
+        <LevelLadderCard 
+          placementBand={placementBand} 
+          targetBand={targetBand}
+          totalExercises={totalExercises}
+        />
+      )}
+
       <ContinueCard profileState={profile} planState={plan} />
       <ProgressCard
         mocks={mocks.data?.sessions ?? []}

@@ -13,6 +13,7 @@
     "@elevenlabs/react": "^1.6.0",
     "@ielts/shared": "workspace:*",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.39.0",
     "lucide-react": "^0.469.0",
     "next": "^15.1.4",
     "react": "^19.0.0",

@@ -20,6 +20,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { IeltsModule, PlacementResult, SkillArea } from "@ielts/shared";
 import { api, getOrCreateUserId, markOnboarded } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -297,34 +298,37 @@ function Onboarding() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-white relative overflow-hidden">
-      {/* Ambient brand wash — subtle, not pastel chaos */}
-      <div
-        aria-hidden
-        className="absolute -top-32 -right-24 h-80 w-80 rounded-full bg-sky-200/30 blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="absolute -bottom-40 -left-32 h-96 w-96 rounded-full bg-sky-100/40 blur-3xl"
-      />
+      <DynamicBackground stage={stage} />
 
       <VisualKeyframes />
       {showHeader && (
         <TopBar progress={progress} onBack={back} canBack={stageIdx(stage) > stageIdx("name")} />
       )}
 
-      <main className="flex-1 flex flex-col px-5 pt-2 pb-6 relative">
-        <div className="max-w-md w-full mx-auto flex-1 flex flex-col">
-          <ScreenRouter
-            stage={stage}
-            setStage={setStage}
-            data={data}
-            setData={setData}
-            today={today}
-            submitting={submitting}
-            error={error}
-            onSubmitWithPlan={() => submit("withPlan")}
-            onSubmitWithoutPlan={() => submit("withoutPlan")}
-          />
+      <main className="flex-1 flex flex-col px-5 pt-2 pb-6 relative z-10">
+        <div className="max-w-md w-full mx-auto flex-1 relative">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={stage}
+              initial={{ opacity: 0, y: 15, scale: 0.98, filter: 'blur(4px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -15, scale: 0.98, filter: 'blur(4px)' }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 flex flex-col overflow-y-auto custom-scrollbar overflow-x-hidden"
+            >
+              <ScreenRouter
+                stage={stage}
+                setStage={setStage}
+                data={data}
+                setData={setData}
+                today={today}
+                submitting={submitting}
+                error={error}
+                onSubmitWithPlan={() => submit("withPlan")}
+                onSubmitWithoutPlan={() => submit("withoutPlan")}
+              />
+            </motion.div>
+          </AnimatePresence>
         </div>
       </main>
     </div>
@@ -515,37 +519,88 @@ function ScreenRouter({
 
 function WelcomeScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex-1 flex flex-col w-full animate-[fadeIn_320ms_ease-out] relative">
-      <MeshBackdrop />
-
-      {/* Hero composition: just the mascot, with breathing room */}
-      <div className="relative flex-1 flex flex-col items-center justify-center px-6">
+    <div className="flex-1 flex flex-col w-full h-full relative">
+      <div className="relative flex-1 flex flex-col items-center justify-center px-6 mt-10">
         <FriendlyMascot mood="wave" size="xl" />
-        <div className="mt-12 text-center">
-          <h1 className="text-[2.5rem] sm:text-[3rem] font-extrabold tracking-tight leading-[1] text-ink">
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.5 }}
+          className="mt-12 text-center"
+        >
+          <h1 className="text-[2.5rem] sm:text-[3rem] font-extrabold tracking-tight leading-[1] text-white">
             Hi, I'm Lumi.
           </h1>
-          <p className="mt-5 text-[17px] text-ink/55 font-medium leading-relaxed max-w-[300px] mx-auto">
+          <p className="mt-5 text-[17px] text-white/75 font-medium leading-relaxed max-w-[300px] mx-auto">
             Your AI study buddy. I'll get you to your dream IELTS band — one step at a time.
           </p>
-        </div>
+        </motion.div>
       </div>
 
-      <div className="relative px-5 pb-7 pt-2">
-        <PrimaryButton onClick={onStart}>Nice to meet you →</PrimaryButton>
+      <div className="relative px-5 pb-7 pt-2 mt-auto">
+        <PrimaryButton variant="light" onClick={onStart}>Nice to meet you →</PrimaryButton>
       </div>
     </div>
   );
 }
 
-/** Soft mesh-gradient backdrop using blurred pastel orbs. */
-function MeshBackdrop() {
+function DynamicBackground({ stage }: { stage: string }) {
+  const orbs: Record<string, { color1: string; color2: string; color3: string }> = {
+    welcome: { color1: "#6b21a8", color2: "#4c1d95", color3: "#581c87" }, // Cohesive, premium deep dark purples
+    name: { color1: "#c4b5fd", color2: "#a855f7", color3: "#d8b4fe" }, // Lumi purple
+    module: { color1: "#fde047", color2: "#f97316", color3: "#fed7aa" }, 
+    placement: { color1: "#86efac", color2: "#14b8a6", color3: "#a7f3d0" }, 
+    "placement-celebration": { color1: "#fde047", color2: "#f59e0b", color3: "#fef08a" }, 
+    "plan-offer": { color1: "#c4b5fd", color2: "#8b5cf6", color3: "#ddd6fe" }, 
+    target: { color1: "#fbcfe8", color2: "#ec4899", color3: "#fce7f3" }, 
+    date: { color1: "#bbf7d0", color2: "#22c55e", color3: "#dcfce7" }, 
+    time: { color1: "#bfdbfe", color2: "#3b82f6", color3: "#dbeafe" }, 
+    weak: { color1: "#fef08a", color2: "#eab308", color3: "#fef9c3" }, 
+    ready: { color1: "#e9d5ff", color2: "#a855f7", color3: "#f3e8ff" }, 
+  };
+
+  const current = orbs[stage] || orbs.welcome;
+  const isDark = stage === "welcome";
+
   return (
-    <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden -z-0">
-      <div className="absolute -top-16 -right-10 h-64 w-64 rounded-full bg-violet-200/40 blur-3xl" />
-      <div className="absolute top-1/3 -left-10 h-48 w-48 rounded-full bg-rose-200/30 blur-3xl" />
-      <div className="absolute bottom-10 right-1/4 h-56 w-56 rounded-full bg-amber-100/40 blur-3xl" />
-    </div>
+    <motion.div 
+      animate={{ backgroundColor: isDark ? "#05010f" : "#ffffff" }}
+      transition={{ duration: 1.2, ease: "easeInOut" }}
+      aria-hidden 
+      className="absolute inset-0 pointer-events-none overflow-hidden -z-0"
+    >
+      <motion.div
+        animate={{ backgroundColor: current.color1, x: [0, 40, -20, 0], y: [0, -40, 20, 0] }}
+        transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 20, repeat: Infinity, ease: "easeInOut" }, y: { duration: 25, repeat: Infinity, ease: "easeInOut" } }}
+        className="absolute top-[-10%] right-[-10%] w-[60vw] h-[60vw] rounded-full blur-[100px] opacity-80"
+      />
+      <motion.div
+        animate={{ backgroundColor: current.color2, x: [0, -30, 30, 0], y: [0, 30, -30, 0] }}
+        transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 25, repeat: Infinity, ease: "easeInOut" }, y: { duration: 20, repeat: Infinity, ease: "easeInOut" } }}
+        className="absolute bottom-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full blur-[120px] opacity-80"
+      />
+      <motion.div
+        animate={{ backgroundColor: current.color3, x: [0, 50, -50, 0], y: [0, 50, -50, 0] }}
+        transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 30, repeat: Infinity, ease: "easeInOut" }, y: { duration: 30, repeat: Infinity, ease: "easeInOut" } }}
+        className="absolute top-[30%] left-[20%] w-[50vw] h-[50vw] rounded-full blur-[90px] opacity-60"
+      />
+      
+      {/* Subtle grid texture to prevent flatness */}
+      <div 
+        className={cn(
+          "absolute inset-0 [mask-image:radial-gradient(ellipse_at_center,black_60%,transparent_100%)] pointer-events-none",
+          isDark ? "opacity-10" : "opacity-[0.03]"
+        )}
+        style={{ backgroundImage: `radial-gradient(${isDark ? '#fff' : '#000'} 1px, transparent 1px)`, backgroundSize: '32px 32px' }} 
+      />
+
+      {/* Frosted glass overlay that adapts to dark/light mode */}
+      <motion.div 
+        animate={{ backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.4)" }}
+        transition={{ duration: 1.2, ease: "easeInOut" }}
+        className="absolute inset-0 backdrop-blur-[60px]" 
+      />
+    </motion.div>
   );
 }
 
@@ -728,8 +783,7 @@ function NameScreen({
   const valid = value.trim().length >= 2;
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
         <FriendlyMascot size="md" />
         <h1 className="mt-8 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           What should I call you?
@@ -766,12 +820,11 @@ function ModuleScreen({
 }) {
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col justify-center">
+      <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="flex flex-col items-center text-center">
           <FriendlyMascot size="sm" />
           <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
-            Nice to meet you, {name}!
+            Nice to meet you, <span className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">{name}</span>!
           </h1>
           <p className="mt-3 text-base text-ink/55 font-medium">
             Which IELTS are you taking?
@@ -783,14 +836,12 @@ function ModuleScreen({
             icon={GraduationCap}
             label="Academic"
             sub="For university & professional registration"
-            tone="brand"
           />
           <BigChoice
             onClick={() => onPick("general-training")}
             icon={Briefcase}
             label="General Training"
             sub="For migration, work & vocational"
-            tone="accent"
           />
         </div>
       </div>
@@ -801,8 +852,7 @@ function ModuleScreen({
 function PlacementScreen({ onSkip }: { onSkip: () => void }) {
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
         <FriendlyMascot size="md" mood="thinking" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           The important bit.
@@ -812,7 +862,7 @@ function PlacementScreen({ onSkip }: { onSkip: () => void }) {
           personalize your lessons — instead of guessing.
         </p>
 
-        <div className="mt-7 w-full max-w-xs space-y-2.5 text-left">
+        <div className="mt-7 w-full max-w-xs space-y-2.5 text-left bg-white/60 backdrop-blur-sm p-5 rounded-3xl border-2 border-white/80 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
           <BulletCheck>10 adaptive questions</BulletCheck>
           <BulletCheck>1 short writing sample</BulletCheck>
           <BulletCheck>Get your CEFR level & starting band</BulletCheck>
@@ -883,8 +933,7 @@ function PlanOfferScreen({
 }) {
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
         <FriendlyMascot size="md" mood="wave" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           {placement ? "Want a daily plan?" : `Ready when you are, ${name}.`}
@@ -922,28 +971,33 @@ function TargetScreen({
   for (let b = minBand; b <= 9; b += 0.5) bands.push(b);
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center mt-10">
         <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
           What band are you aiming for?
         </h1>
-        <div className="mt-10 flex flex-col items-center">
-          <div className="text-[5rem] font-extrabold tabular-nums tracking-tight bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent leading-none">
+        <motion.div 
+          key={value}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+          className="mt-10 flex flex-col items-center"
+        >
+          <div className="text-[5.5rem] font-extrabold tabular-nums tracking-tight bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent leading-none drop-shadow-sm">
             {value.toFixed(1)}
           </div>
-          <p className="mt-2 text-xs font-bold text-ink/45 uppercase tracking-[0.18em]">
+          <p className="mt-2 text-xs font-bold text-violet-500 uppercase tracking-[0.18em]">
             {bandLabel(value)}
           </p>
-        </div>
+        </motion.div>
         <div className="mt-9 grid grid-cols-5 gap-1.5 w-full max-w-xs">
           {bands.map((b) => (
             <button
               key={b}
               onClick={() => onChange(b)}
               className={cn(
-                "rounded-xl py-2.5 text-sm font-bold transition",
+                "rounded-xl py-2.5 text-sm font-bold transition-all",
                 value === b
-                  ? "bg-ink text-white shadow-md"
+                  ? "bg-violet-600 text-white shadow-[0_8px_20px_-6px_rgba(124,58,237,0.5)] scale-110 z-10"
                   : "bg-white border-2 border-ink/10 text-ink/70 hover:border-violet-300 hover:bg-violet-50",
               )}
             >
@@ -979,8 +1033,7 @@ function DateScreen({
   const days = valid ? daysUntil(value) : null;
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center mt-10">
         <FriendlyMascot size="sm" />
         <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
           When's your exam?
@@ -990,16 +1043,23 @@ function DateScreen({
           min={today}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="mt-7 w-full max-w-xs text-center text-xl font-bold py-4 rounded-2xl bg-white border-2 border-ink/10 focus:border-violet-400 focus:outline-none shadow-[0_8px_24px_-12px_rgba(139,92,246,0.25)]"
+          className="mt-7 w-full max-w-xs text-center text-xl font-bold py-4 rounded-2xl bg-white border-2 border-ink/10 focus:border-violet-400 focus:outline-none shadow-[0_8px_24px_-12px_rgba(139,92,246,0.25)] transition-shadow"
         />
-        {days !== null && (
-          <p className="mt-5 text-sm font-semibold text-ink/55">
-            <span className="text-3xl font-extrabold bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent tabular-nums">
-              {days}
-            </span>{" "}
-            days to go
-          </p>
-        )}
+        <AnimatePresence>
+          {days !== null && (
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mt-5 text-sm font-semibold text-ink/55"
+            >
+              <span className="text-3xl font-extrabold bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent tabular-nums">
+                {days}
+              </span>{" "}
+              days to go
+            </motion.p>
+          )}
+        </AnimatePresence>
       </div>
       <Footer>
         <PrimaryButton onClick={onContinue} disabled={!valid}>
@@ -1031,8 +1091,7 @@ function TimeScreen({
 }) {
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col justify-center">
+      <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="text-center">
           <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
             How much time daily?
@@ -1042,18 +1101,21 @@ function TimeScreen({
           </p>
         </div>
         <div className="mt-8 space-y-2.5">
-          {TIME_TIERS.map((tier) => {
+          {TIME_TIERS.map((tier, idx) => {
             const active = value === tier.minutes;
             return (
-              <button
+              <motion.button
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.05 }}
                 key={tier.minutes}
                 onClick={() => onPick(tier.minutes)}
                 className={cn(
-                  "w-full text-left rounded-2xl p-4 flex items-center gap-4 transition border-2",
-                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:translate-y-0.5",
+                  "w-full text-left rounded-2xl p-4 flex items-center gap-4 transition-all border-2",
+                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:scale-[0.98]",
                   active
-                    ? "bg-violet-50 border-violet-400"
-                    : "bg-white border-ink/8 hover:border-violet-200",
+                    ? "bg-violet-50 border-violet-400 scale-[1.02]"
+                    : "bg-white/80 backdrop-blur-sm border-ink/8 hover:border-violet-200 hover:bg-white",
                 )}
               >
                 <div className="text-3xl">{tier.emoji}</div>
@@ -1062,11 +1124,15 @@ function TimeScreen({
                   <div className="text-xs font-semibold text-ink/55 mt-0.5">{tier.sub}</div>
                 </div>
                 {active && (
-                  <div className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                  <motion.div 
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center"
+                  >
                     <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-                  </div>
+                  </motion.div>
                 )}
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -1103,8 +1169,7 @@ function WeakScreen({
   const valid = selected.length >= 1;
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col justify-center">
+      <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="text-center">
           <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
             Which skills need work?
@@ -1114,23 +1179,26 @@ function WeakScreen({
           </p>
         </div>
         <div className="mt-8 grid grid-cols-2 gap-3">
-          {SKILL_META.map(({ key, label, icon: Icon }) => {
+          {SKILL_META.map(({ key, label, icon: Icon }, idx) => {
             const active = selected.includes(key);
             return (
-              <button
+              <motion.button
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: idx * 0.05 }}
                 key={key}
                 onClick={() => onToggle(key)}
                 className={cn(
-                  "rounded-2xl p-5 flex flex-col items-center gap-2.5 transition border-2",
-                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:translate-y-0.5",
+                  "rounded-2xl p-5 flex flex-col items-center gap-2.5 transition-all border-2",
+                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:scale-[0.98]",
                   active
-                    ? "bg-violet-50 border-violet-400 text-violet-700"
-                    : "bg-white border-ink/8 text-ink/65 hover:border-violet-200",
+                    ? "bg-violet-50 border-violet-400 text-violet-700 scale-[1.02]"
+                    : "bg-white/80 backdrop-blur-sm border-ink/8 text-ink/65 hover:border-violet-200 hover:bg-white",
                 )}
               >
                 <Icon className="h-6 w-6" />
                 <span className="text-sm font-extrabold">{label}</span>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -1163,13 +1231,12 @@ function ReadyScreen({
 }) {
   return (
     <ScreenShell>
-      <MeshBackdrop />
-      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
         <FriendlyMascot size="lg" mood="celebrate" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
-          You're all set, {name}!
+          You're all set, <span className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">{name}</span>!
         </h1>
-        <p className="mt-4 text-base text-ink/60 font-medium leading-relaxed max-w-xs">
+        <p className="mt-4 text-base text-ink/60 font-medium leading-relaxed max-w-xs bg-white/50 backdrop-blur-sm p-4 rounded-3xl border border-white/80 shadow-sm">
           Targeting{" "}
           <strong className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">
             Band {targetBand.toFixed(1)}
@@ -1206,7 +1273,7 @@ function ReadyScreen({
 // ============================================================
 
 function ScreenShell({ children }: { children: React.ReactNode }) {
-  return <div className="flex-1 flex flex-col w-full animate-[fadeIn_280ms_ease-out]">{children}</div>;
+  return <div className="flex-1 flex flex-col w-full h-full">{children}</div>;
 }
 
 function Footer({ children }: { children: React.ReactNode }) {
@@ -1370,7 +1437,16 @@ function FriendlyMascot({
   const { w, h } = dims[size];
 
   return (
-    <div className="relative animate-[bob_3.6s_ease-in-out_infinite]" style={{ width: w, height: h }}>
+    <motion.div 
+      initial={{ scale: 0.9, y: 10 }}
+      animate={{ scale: 1, y: [0, -8, 0] }}
+      transition={{ 
+        scale: { type: "spring", stiffness: 300, damping: 20 },
+        y: { duration: 3.6, ease: "easeInOut", repeat: Infinity } 
+      }}
+      className="relative" 
+      style={{ width: w, height: h }}
+    >
       <svg width={w} height={h} viewBox="0 0 200 230" fill="none" className="drop-shadow-[0_18px_24px_rgba(139,92,246,0.28)]">
         <defs>
           <linearGradient id="lumiBody" x1="0.5" y1="0" x2="0.5" y2="1">
@@ -1446,14 +1522,22 @@ function FriendlyMascot({
         {/* Tiny waving arm for wave mood */}
         {mood === "wave" && (
           <g transform="translate(155 95)" className="origin-bottom-left">
-            <path
+            <motion.path
+              animate={{ rotate: [0, 20, 0, 20, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 2 }}
               d="M0 0 Q 10 -15 20 -5"
               stroke="#8b5cf6"
               strokeWidth="9"
               strokeLinecap="round"
               fill="none"
+              style={{ transformOrigin: "0% 100%" }}
             />
-            <circle cx="22" cy="-5" r="7" fill="#c4b5fd" />
+            <motion.circle 
+              animate={{ rotate: [0, 20, 0, 20, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 2 }}
+              cx="22" cy="-5" r="7" fill="#c4b5fd" 
+              style={{ transformOrigin: "-22px 5px" }}
+            />
           </g>
         )}
 
@@ -1476,7 +1560,7 @@ function FriendlyMascot({
         className="absolute top-6 -left-3 h-3 w-3 text-violet-400 animate-[twinkle_2.6s_ease-in-out_infinite] drop-shadow"
         style={{ animationDelay: "0.8s" }}
       />
-    </div>
+    </motion.div>
   );
 }
 
@@ -1529,37 +1613,26 @@ function PrimaryButton({
   children,
   onClick,
   disabled,
+  variant = "dark",
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  variant?: "dark" | "light";
 }) {
+  const baseStyle = variant === "dark" 
+    ? "bg-ink hover:bg-black text-white shadow-ink/20"
+    : "bg-white hover:bg-slate-50 text-slate-900 shadow-white/10";
+
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "group relative w-full rounded-2xl py-[1.1rem] px-6 text-[15px] font-bold text-white transition-all overflow-hidden tracking-tight",
-        disabled ? "opacity-40 cursor-not-allowed" : "hover:-translate-y-0.5 active:translate-y-0",
+        "group relative w-full rounded-full py-[1.15rem] px-6 text-[15px] font-extrabold transition-all overflow-hidden tracking-tight shadow-lg",
+        disabled ? "opacity-40 cursor-not-allowed bg-ink/20 text-ink/50 shadow-none" : `${baseStyle} hover:-translate-y-0.5 active:translate-y-0`,
       )}
-      style={
-        disabled
-          ? { background: "rgb(229 231 235)", color: "rgb(107 114 128)" }
-          : {
-              background:
-                "linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #ec4899 100%)",
-              boxShadow:
-                "0 14px 32px -10px rgba(139,92,246,0.55), 0 2px 4px -1px rgba(99,102,241,0.4), inset 0 1px 0 0 rgba(255,255,255,0.25), inset 0 -2px 0 0 rgba(0,0,0,0.12)",
-            }
-      }
     >
-      {/* Soft inner sheen */}
-      {!disabled && (
-        <span
-          aria-hidden
-          className="absolute inset-x-3 top-1 h-3 rounded-full bg-white/30 blur-md pointer-events-none"
-        />
-      )}
       <span className="relative inline-flex items-center justify-center gap-1.5">
         {children}
       </span>
@@ -1571,17 +1644,8 @@ function PrimaryLink({ href, children }: { href: string; children: React.ReactNo
   return (
     <Link
       href={href}
-      className="group relative block w-full text-center rounded-2xl py-[1.1rem] px-6 text-[15px] font-bold text-white tracking-tight transition-all overflow-hidden hover:-translate-y-0.5"
-      style={{
-        background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #ec4899 100%)",
-        boxShadow:
-          "0 14px 32px -10px rgba(139,92,246,0.55), 0 2px 4px -1px rgba(99,102,241,0.4), inset 0 1px 0 0 rgba(255,255,255,0.25), inset 0 -2px 0 0 rgba(0,0,0,0.12)",
-      }}
+      className="group relative block w-full text-center rounded-full py-[1.15rem] px-6 text-[15px] font-extrabold text-white tracking-tight transition-all overflow-hidden hover:-translate-y-0.5 bg-ink hover:bg-black shadow-lg shadow-ink/20"
     >
-      <span
-        aria-hidden
-        className="absolute inset-x-3 top-1 h-3 rounded-full bg-white/30 blur-md pointer-events-none"
-      />
       <span className="relative">{children}</span>
     </Link>
   );
@@ -1596,39 +1660,31 @@ function BigChoice({
   icon: Icon,
   label,
   sub,
-  tone,
 }: {
   onClick: () => void;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   sub: string;
-  tone: "brand" | "accent";
 }) {
-  const styles =
-    tone === "brand"
-      ? "bg-white ring-sky-100 shadow-[0_18px_32px_-16px_rgba(14,165,233,0.35)] hover:ring-sky-300"
-      : "bg-white ring-amber-100 shadow-[0_18px_32px_-16px_rgba(245,158,11,0.35)] hover:ring-amber-300";
-  const iconBg =
-    tone === "brand"
-      ? "bg-gradient-to-br from-sky-400 to-sky-600 text-white shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]"
-      : "bg-gradient-to-br from-amber-300 to-amber-500 text-white shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]";
   return (
     <button
       onClick={onClick}
       className={cn(
-        "w-full text-left rounded-3xl p-5 flex items-center gap-4 ring-1 transition-all",
-        "hover:-translate-y-0.5 active:translate-y-0.5",
-        styles,
+        "group w-full text-left rounded-3xl p-5 flex items-center gap-4 bg-white/90 backdrop-blur-sm border-[1.5px] border-slate-100 transition-all",
+        "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.06)] hover:shadow-[0_16px_32px_-12px_rgba(0,0,0,0.1)]",
+        "hover:-translate-y-0.5 active:translate-y-0.5 hover:border-slate-200"
       )}
     >
-      <div className={cn("h-12 w-12 rounded-2xl flex items-center justify-center shrink-0", iconBg)}>
-        <Icon className="h-6 w-6" />
+      <div className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0 bg-[#F7F9FA] text-slate-600 transition-colors group-hover:bg-slate-100 group-hover:text-ink">
+        <Icon className="w-[22px] h-[22px]" />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-extrabold text-base text-ink tracking-tight">{label}</div>
-        <div className="text-[12px] font-semibold text-ink/55 mt-0.5 leading-snug">{sub}</div>
+      <div className="flex-1">
+        <h3 className="font-extrabold text-[17px] text-ink tracking-tight transition-colors">{label}</h3>
+        <p className="text-[13.5px] text-ink/50 font-medium leading-snug mt-0.5">{sub}</p>
       </div>
-      <ArrowRight className="h-4 w-4 text-ink/30 shrink-0" />
+      <div className="text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-slate-400">
+        <ArrowRight className="w-5 h-5 opacity-70" />
+      </div>
     </button>
   );
 }
