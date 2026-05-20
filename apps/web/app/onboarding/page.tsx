@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   PenLine,
   Sparkles,
   Target,
+  UserRound,
 } from "lucide-react";
 import type { IeltsModule, SkillArea } from "@ielts/shared";
 import { api, getOrCreateUserId, markOnboarded } from "@/lib/api";
@@ -31,6 +32,21 @@ interface Wizard {
   weakAreas: SkillArea[];
 }
 
+type SubmitMode = "withPlan" | "withoutPlan";
+
+const PLAN_BUILDER_PHRASES = [
+  "You've got this. ✨",
+  "Band 9 is built one day at a time.",
+  "Future you is already cheering.",
+  "Show up. The rest follows.",
+  "Tiny wins → big bands.",
+  "Hard now, easy on exam day.",
+  "Mistakes = free upgrades.",
+  "Keep going. You're closer than you think.",
+  "One more drill. One step closer.",
+  "You're not late. You're right on time.",
+];
+
 const DEFAULTS: Wizard = {
   name: "",
   module: "",
@@ -41,7 +57,7 @@ const DEFAULTS: Wizard = {
   weakAreas: [],
 };
 
-const STEPS = ["signin", "module", "current", "target", "date", "time", "weak"] as const;
+const STEPS = ["name", "module", "current", "target", "date", "time", "weak"] as const;
 type StepKey = (typeof STEPS)[number];
 
 const SKILL_LABEL: Record<SkillArea, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -63,12 +79,10 @@ export default function OnboardingPage() {
 
 function Onboarding() {
   const router = useRouter();
-  const search = useSearchParams();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<Wizard>(DEFAULTS);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<SubmitMode | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("ielts.wizard") : null;
@@ -84,36 +98,6 @@ function Onboarding() {
     if (typeof window !== "undefined") localStorage.setItem("ielts.wizard", JSON.stringify(data));
   }, [data]);
 
-  // Handle return from Google OAuth: prefill name, clean the querystring, auto-advance.
-  useEffect(() => {
-    if (!search) return;
-    const googleName = search.get("googleName");
-    const signin = search.get("signin");
-    if (signin === "connected" && googleName) {
-      setData((d) => ({ ...d, name: googleName }));
-      const url = new URL(window.location.href);
-      ["signin", "googleName", "googleEmail", "msg"].forEach((k) => url.searchParams.delete(k));
-      router.replace(url.pathname + (url.search ? url.search : ""));
-      // Move past the sign-in step.
-      setStep((s) => (s === 0 ? 1 : s));
-    } else if (signin === "error") {
-      setError(`Google sign-in failed${search.get("msg") ? `: ${search.get("msg")}` : "."}`);
-    }
-  }, [search, router]);
-
-  async function continueWithGoogle() {
-    setError(null);
-    setGoogleLoading(true);
-    try {
-      const userId = getOrCreateUserId();
-      const { url } = await api.googleAuthUrl(userId, "/onboarding", "signin");
-      window.location.href = url;
-    } catch (e) {
-      setError((e as Error).message);
-      setGoogleLoading(false);
-    }
-  }
-
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const current: StepKey = STEPS[step] ?? "weak";
@@ -123,20 +107,20 @@ function Onboarding() {
   function next() {
     if (!canAdvance) return;
     if (!isLast) setStep((s) => s + 1);
-    else submit();
+    else submit("withPlan");
   }
   function back() {
     if (step > 0) setStep((s) => s - 1);
   }
 
-  async function submit() {
-    setSubmitting(true);
+  async function submit(mode: SubmitMode) {
+    setSubmitting(mode);
     setError(null);
     try {
       const userId = getOrCreateUserId();
       await api.saveProfile({
         userId,
-        name: data.name,
+        name: data.name.trim(),
         module: data.module as IeltsModule,
         currentBand: data.currentBand,
         targetBand: data.targetBand,
@@ -144,6 +128,14 @@ function Onboarding() {
         dailyMinutes: data.dailyMinutes,
         weakAreas: data.weakAreas,
       });
+
+      if (mode === "withoutPlan") {
+        // Profile saved; skip plan generation and explore the app directly.
+        markOnboarded("");
+        router.push("/");
+        return;
+      }
+
       const plan = await api.createStudyPlan({
         userId,
         targetBand: data.targetBand,
@@ -156,58 +148,46 @@ function Onboarding() {
       router.push(`/plan/${plan.id}?welcome=1`);
     } catch (e) {
       setError((e as Error).message);
-      setSubmitting(false);
+      setSubmitting(null);
     }
   }
 
-  const isSignin = current === "signin";
+  if (submitting === "withPlan") {
+    return <BuildingPlanScreen name={data.name.trim()} />;
+  }
 
   return (
     <div className="min-h-[100dvh] flex flex-col px-4 py-6 sm:py-10 max-w-md mx-auto">
-      {!isSignin && (
-        <>
-          {/* Progress */}
-          <div className="flex items-center gap-1.5 mb-6">
-            {STEPS.filter((s) => s !== "signin").map((_, i) => {
-              const realStep = step - 1;
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "h-1.5 rounded-full flex-1 transition-all",
-                    i < realStep ? "bg-ink/80" : i === realStep ? "bg-ink" : "bg-ink/15",
-                  )}
-                />
-              );
-            })}
-          </div>
+      {/* Progress */}
+      <div className="flex items-center gap-1.5 mb-6">
+        {STEPS.map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              "h-1.5 rounded-full flex-1 transition-all",
+              i < step ? "bg-ink/80" : i === step ? "bg-ink" : "bg-ink/15",
+            )}
+          />
+        ))}
+      </div>
 
-          <div className="flex items-center justify-between mb-8">
-            <button
-              onClick={back}
-              disabled={step <= 1}
-              className="icon-pill disabled:opacity-30"
-              aria-label="Back"
-            >
-              <ArrowLeft className="h-4 w-4 text-ink/70" />
-            </button>
-            <span className="text-xs text-ink/50 font-medium">
-              {step} / {STEPS.length - 1}
-            </span>
-            <div className="w-10" />
-          </div>
-        </>
-      )}
+      <div className="flex items-center justify-between mb-8">
+        <button
+          onClick={back}
+          disabled={step === 0}
+          className="icon-pill disabled:opacity-30"
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-4 w-4 text-ink/70" />
+        </button>
+        <span className="text-xs text-ink/50 font-medium">
+          {step + 1} / {STEPS.length}
+        </span>
+        <div className="w-10" />
+      </div>
 
       <div className="flex-1 flex flex-col">
-        <StepView
-          step={current}
-          data={data}
-          setData={setData}
-          today={today}
-          onGoogle={current === "signin" ? continueWithGoogle : undefined}
-          googleLoading={googleLoading}
-        />
+        <StepView step={current} data={data} setData={setData} today={today} />
       </div>
 
       {error && (
@@ -216,41 +196,124 @@ function Onboarding() {
         </div>
       )}
 
-      {current !== "signin" && (
+      <button
+        onClick={next}
+        disabled={!canAdvance || submitting !== null}
+        className="btn-pill mt-6 justify-center w-full text-base py-3 disabled:opacity-40"
+      >
+        {isLast ? (
+          <>
+            Generate my plan <Sparkles className="h-4 w-4" />
+          </>
+        ) : (
+          <>
+            Next <ArrowRight className="h-4 w-4" />
+          </>
+        )}
+      </button>
+
+      {isLast && (
         <button
-          onClick={next}
-          disabled={!canAdvance || submitting}
-          className="btn-pill mt-6 justify-center w-full text-base py-3 disabled:opacity-40"
+          onClick={() => submit("withoutPlan")}
+          disabled={!canAdvance || submitting !== null}
+          className="mt-3 w-full text-center text-sm font-semibold text-ink/65 hover:text-ink disabled:opacity-40 underline-offset-4 hover:underline"
         >
-          {submitting ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" /> Building your plan…
-            </>
-          ) : isLast ? (
-            <>
-              Generate my plan <Sparkles className="h-4 w-4" />
-            </>
+          {submitting === "withoutPlan" ? (
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Saving your profile…
+            </span>
           ) : (
-            <>
-              Next <ArrowRight className="h-4 w-4" />
-            </>
+            "Skip — I'll build my plan later"
           )}
         </button>
       )}
 
-      {!isSignin && (
-        <p className="mt-4 text-center text-[11px] text-ink/40">
-          We use these answers to build your daily IELTS schedule.
+      <p className="mt-4 text-center text-[11px] text-ink/40">
+        We use these answers to build your daily IELTS schedule.
+      </p>
+    </div>
+  );
+}
+
+function BuildingPlanScreen({ name }: { name: string }) {
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPhraseIdx((i) => (i + 1) % PLAN_BUILDER_PHRASES.length);
+    }, 2200);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="min-h-[100dvh] flex items-center justify-center px-6 bg-gradient-to-b from-violet-50 via-fuchsia-50 to-rose-50 relative overflow-hidden">
+      {/* Animated background blobs */}
+      <div
+        aria-hidden
+        className="absolute -top-20 -left-16 h-72 w-72 rounded-full bg-violet-300/40 blur-3xl animate-pulse"
+      />
+      <div
+        aria-hidden
+        className="absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-rose-300/40 blur-3xl animate-pulse"
+        style={{ animationDelay: "1.4s" }}
+      />
+      <div
+        aria-hidden
+        className="absolute top-1/3 right-1/4 h-40 w-40 rounded-full bg-amber-200/40 blur-3xl animate-pulse"
+        style={{ animationDelay: "0.8s" }}
+      />
+
+      <div className="relative max-w-sm w-full text-center">
+        {/* Spinner with sparkle */}
+        <div className="relative mx-auto h-24 w-24 mb-8">
+          <div className="absolute inset-0 rounded-full border-4 border-violet-200" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-violet-500 animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Sparkles className="h-9 w-9 text-violet-500 animate-pulse" />
+          </div>
+        </div>
+
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+          {name ? `Hang tight, ${name} —` : "Hang tight —"}
+        </h1>
+        <p className="mt-1 text-lg font-semibold text-ink/80">
+          we're tailoring your IELTS plan
         </p>
-      )}
+
+        {/* Rotating phrase */}
+        <div className="mt-8 min-h-[3em] text-sm text-ink/65 leading-relaxed">
+          <span
+            key={phraseIdx}
+            className="inline-block animate-[fadeIn_400ms_ease-out]"
+          >
+            {PLAN_BUILDER_PHRASES[phraseIdx]}
+          </span>
+        </div>
+
+        <p className="mt-10 text-[11px] text-ink/40 leading-relaxed">
+          AI generation usually takes 20–60 seconds. Please don't refresh.
+        </p>
+      </div>
+
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
 function isStepValid(s: StepKey, d: Wizard): boolean {
   switch (s) {
-    case "signin":
-      return d.name.trim().length >= 1;
+    case "name":
+      return d.name.trim().length >= 2;
     case "module":
       return d.module !== "";
     case "current":
@@ -271,53 +334,34 @@ function StepView({
   data,
   setData,
   today,
-  onGoogle,
-  googleLoading,
 }: {
   step: StepKey;
   data: Wizard;
   setData: (u: (prev: Wizard) => Wizard) => void;
   today: string;
-  onGoogle?: () => void;
-  googleLoading?: boolean;
 }) {
   switch (step) {
-    case "signin":
+    case "name":
       return (
-        <div className="flex-1 flex flex-col justify-center items-center text-center pt-6">
-          <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-300 via-fuchsia-300 to-rose-300 flex items-center justify-center text-white font-bold text-xl shadow-soft ring-2 ring-white mb-6">
-            IB
+        <StepShell title="What should we call you?" subtitle="We use this for greetings and your dashboard avatar.">
+          <div className="flex items-center gap-2 rounded-2xl bg-white/70 border border-white/70 px-4 py-3">
+            <UserRound className="h-5 w-5 text-ink/50" />
+            <input
+              type="text"
+              autoFocus
+              maxLength={40}
+              value={data.name}
+              onChange={(e) => setData((d) => ({ ...d, name: e.target.value }))}
+              placeholder="e.g. Mareta"
+              className="flex-1 bg-transparent text-lg focus:outline-none placeholder:text-ink/30"
+            />
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-[-0.02em] leading-tight">
-            Start your IELTS journey
-          </h1>
-          <p className="mt-3 text-sm text-ink/55 max-w-xs">
-            Sign in to save your progress and access your study plan from anywhere.
-          </p>
-
-          <button
-            onClick={onGoogle}
-            disabled={googleLoading || !onGoogle}
-            className="mt-8 w-full inline-flex items-center justify-center gap-3 rounded-2xl bg-ink text-white px-4 py-3.5 text-sm font-semibold hover:bg-ink-soft transition disabled:opacity-50"
-          >
-            {googleLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <GoogleIcon className="h-5 w-5" />
-            )}
-            Continue with Google
-          </button>
-
-          {data.name && (
-            <div className="mt-5 text-xs text-ink/55">
-              Welcome back, <span className="font-medium text-ink">{data.name}</span>
-            </div>
+          {data.name.trim().length > 0 && (
+            <p className="mt-3 text-xs text-ink/60">
+              Hi, <span className="font-semibold text-ink">{data.name.trim()}</span> 👋
+            </p>
           )}
-
-          <p className="mt-10 text-[11px] text-ink/40 max-w-xs leading-relaxed">
-            By signing in, you agree to let us store your profile, attempts, and study plan.
-          </p>
-        </div>
+        </StepShell>
       );
 
     case "module":
@@ -557,32 +601,4 @@ function daysUntil(yyyyMmDd: string): number {
   const target = new Date(yyyyMmDd + "T00:00:00").getTime();
   const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00").getTime();
   return Math.max(0, Math.round((target - today) / 86_400_000));
-}
-
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        fill="#4285F4"
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.83z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"
-      />
-    </svg>
-  );
 }

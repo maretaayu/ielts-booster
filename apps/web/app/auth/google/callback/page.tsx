@@ -26,7 +26,7 @@ function GoogleCallbackBouncerInner() {
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center text-ink/60">
-      <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing sign-in…
+      <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing Google Calendar connection…
     </div>
   );
 }
@@ -36,7 +36,7 @@ export default function GoogleCallbackBouncer() {
     <Suspense
       fallback={
         <div className="min-h-[100dvh] flex items-center justify-center text-ink/60">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing sign-in…
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Finishing Google Calendar connection…
         </div>
       }
     >

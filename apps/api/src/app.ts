@@ -14,6 +14,8 @@ import { registerReviewRoutes } from "./routes/review.js";
 import { registerSpeakingRoutes } from "./routes/speaking.js";
 import { registerSpeakingRealtimeRoutes } from "./routes/speakingRealtime.js";
 import { registerTtsRoutes } from "./routes/tts.js";
+import { registerListeningRoutes } from "./routes/listening.js";
+import { registerMockTestRoutes } from "./routes/mockTest.js";
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -47,6 +49,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerSpeakingRoutes(app);
   await registerSpeakingRealtimeRoutes(app);
   await registerTtsRoutes(app);
+  await registerListeningRoutes(app);
+  await registerMockTestRoutes(app);
 
   return app;
 }

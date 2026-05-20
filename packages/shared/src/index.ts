@@ -370,3 +370,121 @@ export interface CalendarSyncResult {
   eventsSkipped: number;
   calendarId: string;
 }
+
+// ===== Listening =====
+
+export type ListeningSectionKind = "social" | "monologue" | "academic-discussion" | "academic-lecture";
+
+export type ListeningQuestionType =
+  | "multiple-choice"
+  | "short-answer"
+  | "form-completion"
+  | "matching";
+
+export interface ListeningQuestion {
+  id: string;
+  type: ListeningQuestionType;
+  prompt: string;
+  options?: string[];
+  /** Canonical answer. For MCQ: option index as string. For others: the text. */
+  answer: string;
+  explanation?: string;
+}
+
+export interface ListeningSection {
+  id: string;
+  sectionIndex: 1 | 2 | 3 | 4;
+  kind: ListeningSectionKind;
+  title: string;
+  /** Public URL to the audio recording. Optional — UI degrades to "audio missing" notice if absent. */
+  audioUrl?: string;
+  /** Optional plain-text transcript revealed after submit, useful for review. */
+  transcript?: string;
+  questions: ListeningQuestion[];
+}
+
+export interface ListeningTest {
+  id: string;
+  title: string;
+  estimatedMinutes: number;
+  sections: ListeningSection[];
+  source?: string;
+}
+
+export interface ListeningTestSummary {
+  id: string;
+  title: string;
+  estimatedMinutes: number;
+  sectionCount: number;
+  questionCount: number;
+}
+
+export interface ListeningAttempt {
+  id: string;
+  userId: string;
+  testId: string;
+  answers: Record<string, string>;
+  score: number;
+  total: number;
+  timeSpentSeconds: number;
+  createdAt: string;
+}
+
+// ===== Mock Test (full 4-section simulator) =====
+
+export type MockSectionId = "listening" | "reading" | "writing" | "speaking";
+
+export type MockSectionStatus = "pending" | "in_progress" | "completed" | "skipped";
+
+export interface MockSectionState {
+  status: MockSectionStatus;
+  /** ms since epoch of when this section started in the orchestrator */
+  startedAt?: string;
+  completedAt?: string;
+  /** Section-specific result references */
+  listeningAttemptId?: string;
+  readingAttemptId?: string;
+  writingAttemptId?: string;
+  speakingSessionId?: string;
+  /** Section band (0–9, half-points). Set when result is ready. */
+  band?: IeltsBand;
+  /** Raw score for objective sections */
+  rawScore?: number;
+  rawTotal?: number;
+}
+
+export interface MockTestSession {
+  id: string;
+  userId: string;
+  status: "in_progress" | "completed" | "abandoned";
+  /** Section ids the user is taking, in fixed order. */
+  listeningTestId: string;
+  readingPassageId: string;
+  writingPromptId: string;
+  speakingTopicId: string;
+  sections: Record<MockSectionId, MockSectionState>;
+  overallBand?: IeltsBand;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface StartMockTestRequest {
+  userId: string;
+  listeningTestId?: string;
+  readingPassageId?: string;
+  writingPromptId?: string;
+  speakingTopicId?: string;
+}
+
+export interface UpdateMockSectionRequest {
+  userId: string;
+  section: MockSectionId;
+  status: MockSectionStatus;
+  listeningAttemptId?: string;
+  readingAttemptId?: string;
+  writingAttemptId?: string;
+  speakingSessionId?: string;
+  band?: IeltsBand;
+  rawScore?: number;
+  rawTotal?: number;
+}

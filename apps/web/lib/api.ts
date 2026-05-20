@@ -4,6 +4,10 @@ import type {
   CreateStudyPlanRequest,
   GradeRequest,
   GradeResponse,
+  ListeningAttempt,
+  ListeningTest,
+  ListeningTestSummary,
+  MockTestSession,
   Prompt,
   ReadingAttempt,
   ReadingPassage,
@@ -11,7 +15,9 @@ import type {
   ScoreSpeakingRequest,
   SpeakingSession,
   SpeakingTopic,
+  StartMockTestRequest,
   StudyPlan,
+  UpdateMockSectionRequest,
   UserProfile,
   VocabEntry,
   WordDefinition,
@@ -155,6 +161,44 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ topicId }),
     }),
+  listListeningTests: () =>
+    request<{ tests: ListeningTestSummary[] }>(`/listening/tests`),
+  getListeningTest: (id: string) => request<ListeningTest>(`/listening/tests/${id}`),
+  submitListening: (body: {
+    userId: string;
+    testId: string;
+    answers: Record<string, string>;
+    timeSpentSeconds: number;
+  }) =>
+    request<{
+      attempt: ListeningAttempt;
+      breakdown: Array<{
+        questionId: string;
+        given: string;
+        expected: string;
+        correct: boolean;
+        explanation?: string;
+      }>;
+      band: number;
+    }>(`/listening/attempts`, { method: "POST", body: JSON.stringify(body) }),
+  ttsSpeakUrl: (text: string, voiceId?: string) => ({
+    url: `${API_URL}/tts/speak`,
+    body: JSON.stringify(voiceId ? { text, voiceId } : { text }),
+  }),
+
+  startMockTest: (body: StartMockTestRequest) =>
+    request<MockTestSession>(`/mock-test`, { method: "POST", body: JSON.stringify(body) }),
+  getMockTest: (id: string) => request<MockTestSession>(`/mock-test/${id}`),
+  updateMockSection: (id: string, body: UpdateMockSectionRequest) =>
+    request<MockTestSession>(`/mock-test/${id}/section`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  listMockTests: (userId: string) =>
+    request<{ sessions: MockTestSession[] }>(
+      `/mock-tests?userId=${encodeURIComponent(userId)}`,
+    ),
+
   scoreRealtime: (body: {
     userId: string;
     topicId: string;
@@ -181,7 +225,7 @@ export function isOnboarded(): boolean {
 export function markOnboarded(planId: string) {
   if (typeof window === "undefined") return;
   localStorage.setItem(ONBOARDED_KEY, "1");
-  localStorage.setItem("ielts.planId", planId);
+  if (planId) localStorage.setItem("ielts.planId", planId);
 }
 
 export function getActivePlanId(): string | null {

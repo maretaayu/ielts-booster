@@ -10,6 +10,7 @@ export function AppShell({
   subtitle,
   back,
   active,
+  sidebar,
   children,
 }: {
   greeting?: string;
@@ -17,12 +18,17 @@ export function AppShell({
   /** Show a back arrow (defaults to false). When `true`, uses router.back(); pass a href to navigate explicitly. */
   back?: boolean | string;
   active?: BottomNavKey;
+  /** Optional right rail (shown on lg+). Below lg it appears under the main content. */
+  sidebar?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const widthClass = sidebar
+    ? "max-w-md sm:max-w-2xl lg:max-w-6xl"
+    : "max-w-md sm:max-w-2xl";
 
   return (
-    <div className="mx-auto max-w-md sm:max-w-2xl px-4 pt-5 pb-28 sm:pb-24">
+    <div className={`mx-auto ${widthClass} px-4 pt-5 pb-28 sm:pb-24`}>
       <header className="flex items-center gap-3">
         {back ? (
           typeof back === "string" ? (
@@ -58,7 +64,14 @@ export function AppShell({
         </div>
       )}
 
-      <div className="mt-6 sm:mt-8">{children}</div>
+      {sidebar ? (
+        <div className="mt-6 sm:mt-8 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          <div>{children}</div>
+          <aside className="lg:sticky lg:top-6 self-start">{sidebar}</aside>
+        </div>
+      ) : (
+        <div className="mt-6 sm:mt-8">{children}</div>
+      )}
 
       <BottomNav active={active} />
     </div>

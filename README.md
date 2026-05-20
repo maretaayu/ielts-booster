@@ -163,5 +163,5 @@ The Speaking module uses ElevenLabs for the AI examiner's voice. Without an API 
 - [x] **Phase 6**: Vocab review (SM-2 lite spaced repetition flashcards)
 - [x] **Phase 7**: Speaking — voice mock interview (Part 1/2/3, Web Speech API + Gemini examiner)
 - [ ] **Phase 2**: Auth (Firebase Auth — email/Google), real user accounts
-- [ ] **Phase 8**: Listening — Cambridge-style sections + audio player
-- [ ] **Phase 9**: Mock full test simulator + band trajectory dashboard
+- [x] **Phase 8**: Listening — Cambridge-style sections + audio player (TTS-generated via ElevenLabs)
+- [x] **Phase 9**: Mock full test simulator (`/mock`) — strict timer, auto-advance, 4-section orchestrator

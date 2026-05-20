@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Clock, Mic, MessageCircle, Sparkles } from "lucide-react";
-import type { SpeakingPart, SpeakingTopic } from "@ielts/shared";
-import { api } from "@/lib/api";
+import type { SpeakingPart, SpeakingSession, SpeakingTopic } from "@ielts/shared";
+import { api, getOrCreateUserId } from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
 import { cn } from "@/lib/utils";
 
@@ -28,8 +28,10 @@ const CARD_BY_PART: Record<SpeakingPart, string> = {
 
 export default function SpeakPicker() {
   const [topics, setTopics] = useState<SpeakingTopic[]>([]);
+  const [sessions, setSessions] = useState<SpeakingSession[]>([]);
   const [filter, setFilter] = useState<SpeakingPart | "all">("all");
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +41,16 @@ export default function SpeakPicker() {
       .then((r) => setTopics(r.topics))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const userId = getOrCreateUserId();
+    setHistoryLoading(true);
+    api
+      .listSpeakingSessions(userId)
+      .then((r) => setSessions(r.sessions))
+      .catch(() => setSessions([]))
+      .finally(() => setHistoryLoading(false));
   }, []);
 
   const filtered = useMemo(
@@ -100,16 +112,7 @@ export default function SpeakPicker() {
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-ink/60 bg-white/60 px-2.5 py-1 rounded-full">
                     {PART_LABEL[t.part]}
                   </span>
-                  <span
-                    className={cn(
-                      "text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full",
-                      t.difficulty === "easy" && "bg-emerald-100 text-emerald-700",
-                      t.difficulty === "medium" && "bg-amber-100 text-amber-700",
-                      t.difficulty === "hard" && "bg-rose-100 text-rose-700",
-                    )}
-                  >
-                    {t.difficulty}
-                  </span>
+                  <DifficultyBadge difficulty={t.difficulty} />
                 </div>
                 <h3 className="mt-5 text-xl font-bold tracking-tight">{t.title}</h3>
                 <p className="mt-1 text-xs text-ink/60">{PART_DESC[t.part]}</p>
@@ -131,6 +134,8 @@ export default function SpeakPicker() {
             ))}
       </div>
 
+      <PracticeTimeline sessions={sessions} loading={historyLoading} />
+
       <div className="mt-8 glass rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-start gap-4">
         <Sparkles className="h-6 w-6 text-violet-500 flex-shrink-0 mt-1" />
         <div>
@@ -144,5 +149,123 @@ export default function SpeakPicker() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function DifficultyBadge({
+  difficulty,
+  className,
+}: {
+  difficulty: SpeakingTopic["difficulty"];
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full",
+        difficulty === "easy" && "bg-emerald-100 text-emerald-700",
+        difficulty === "medium" && "bg-amber-100 text-amber-700",
+        difficulty === "hard" && "bg-rose-100 text-rose-700",
+        className,
+      )}
+    >
+      {difficulty}
+    </span>
+  );
+}
+
+function PracticeTimeline({
+  sessions,
+  loading,
+}: {
+  sessions: SpeakingSession[];
+  loading: boolean;
+}) {
+  const recent = useMemo(
+    () => [...sessions].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5),
+    [sessions],
+  );
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between mb-4">
+        <h3 className="text-xl font-bold tracking-tight">Practice timeline</h3>
+        <span className="text-xs font-medium text-ink/45">Recent speaking attempts</span>
+      </div>
+
+      {loading ? (
+        <div className="glass rounded-3xl p-5 space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-12 rounded-2xl bg-white/50 animate-pulse" />
+          ))}
+        </div>
+      ) : recent.length === 0 ? (
+        <div className="glass rounded-3xl p-5 text-sm text-ink/60">
+          No speaking attempts yet. Start an exercise and your scored sessions will appear here.
+        </div>
+      ) : (
+        <div className="glass rounded-3xl p-5">
+          <div className="space-y-1">
+            {recent.map((session, index) => {
+              const scored = session.status === "scored" && session.score;
+              return (
+                <Link
+                  key={session.id}
+                  href={scored ? `/speak/result/${session.id}` : `/speak/${session.topicId}`}
+                  className="group relative flex gap-4 rounded-2xl px-2 py-3 transition hover:bg-white/55"
+                >
+                  {index < recent.length - 1 && (
+                    <span
+                      aria-hidden
+                      className="absolute left-[17px] top-9 bottom-[-10px] w-px bg-ink/10"
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      "relative mt-1 h-3 w-3 rounded-full ring-4 ring-white shrink-0",
+                      scored ? "bg-emerald-500" : "bg-amber-400",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold tracking-tight truncate">
+                          {session.topicSnapshot.title}
+                        </div>
+                        <div className="mt-0.5 text-xs text-ink/50">
+                          {PART_LABEL[session.topicSnapshot.part]} ·{" "}
+                          {new Date(session.createdAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                          {" · "}
+                          {Math.max(1, Math.round(session.totalSeconds / 60))} min
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {scored ? (
+                          <>
+                            <div className="text-lg font-bold text-emerald-700">
+                              {session.score!.overallBand.toFixed(1)}
+                            </div>
+                            <div className="text-[10px] uppercase tracking-wider text-ink/40">
+                              Band
+                            </div>
+                          </>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase text-amber-700">
+                            {session.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

@@ -25,5 +25,16 @@ export function db(): Firestore {
   if (firestoreInstance) return firestoreInstance;
   initApp();
   firestoreInstance = getFirestore();
+  // Switch to HTTPS/REST transport. gRPC's keepalive can stall on networks
+  // that block long-lived connections (some ISPs, corporate proxies),
+  // surfacing as 60s DEADLINE_EXCEEDED on the first write. REST is slower
+  // per request but reliable everywhere HTTPS works.
+  firestoreInstance.settings({
+    preferRest: true,
+    // Firestore otherwise rejects explicit `undefined` values; we have several
+    // optional-by-default doc shapes (mock-test section state, etc.), so let it
+    // strip them rather than 500-ing the request.
+    ignoreUndefinedProperties: true,
+  });
   return firestoreInstance;
 }

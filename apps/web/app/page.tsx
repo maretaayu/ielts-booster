@@ -7,13 +7,20 @@ import {
   Bell,
   BookOpen,
   ChevronRight,
+  ClipboardCheck,
   Mic,
   PenLine,
   Sparkles,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import type { Attempt, SpeakingSession, StudyPlan, UserProfile } from "@ielts/shared";
+import type {
+  Attempt,
+  MockTestSession,
+  SpeakingSession,
+  StudyPlan,
+  UserProfile,
+} from "@ielts/shared";
 import {
   api,
   getActivePlanId,
@@ -48,6 +55,9 @@ function useLoad<T>(fn: () => Promise<T> | null): LoadState<T> {
 }
 
 export default function Home() {
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
   const onboarded = typeof window !== "undefined" ? isOnboarded() : true;
   const userId = typeof window !== "undefined" ? getOrCreateUserId() : "anon";
   const planId = typeof window !== "undefined" ? getActivePlanId() : null;
@@ -62,17 +72,26 @@ export default function Home() {
   const speaking = useLoad<{ sessions: SpeakingSession[] } | null>(() =>
     onboarded ? api.listSpeakingSessions(userId) : null,
   );
+  const mocks = useLoad<{ sessions: MockTestSession[] } | null>(() =>
+    onboarded ? api.listMockTests(userId) : null,
+  );
+
+  // Don't flash the empty "Hey, Student" shell while OnboardingGate is still
+  // deciding whether to redirect to /onboarding.
+  if (hydrated && !onboarded) {
+    return <div className="mx-auto max-w-md px-6 pt-20 text-center text-ink/40 text-sm">Redirecting…</div>;
+  }
 
   return (
     <div className="mx-auto max-w-md sm:max-w-lg px-6 pt-7 pb-32 sm:pb-28">
       <TopBar name={profile.data?.name} />
       <ContinueCard profileState={profile} planState={plan} />
       <ProgressCard
-        attempts={attempts.data?.attempts ?? []}
-        sessions={speaking.data?.sessions ?? []}
-        ready={attempts.status !== "loading" && speaking.status !== "loading"}
+        mocks={mocks.data?.sessions ?? []}
+        ready={mocks.status !== "loading"}
       />
       <PracticeGrid />
+      <MockTestCTA />
       <RecentStrip
         attempts={attempts.data?.attempts ?? []}
         sessions={speaking.data?.sessions ?? []}
@@ -212,28 +231,36 @@ function PracticeGrid() {
       label: "Writing",
       hint: "Band-scored essays",
       icon: <PenLine className="h-5 w-5" />,
-      bg: "bg-amber-100",
+      iconBg: "bg-amber-100",
+      iconText: "text-amber-700",
+      accent: "from-amber-100/80",
     },
     {
       href: "/read",
       label: "Reading",
       hint: "Tap-to-define passages",
       icon: <BookOpen className="h-5 w-5" />,
-      bg: "bg-emerald-100",
+      iconBg: "bg-emerald-100",
+      iconText: "text-emerald-700",
+      accent: "from-emerald-100/80",
     },
     {
       href: "/speak",
       label: "Speaking",
       hint: "Voice mock interview",
       icon: <Mic className="h-5 w-5" />,
-      bg: "bg-violet-100",
+      iconBg: "bg-violet-100",
+      iconText: "text-violet-700",
+      accent: "from-violet-100/80",
     },
     {
       href: "/review",
       label: "Vocab",
       hint: "Spaced repetition",
       icon: <Sparkles className="h-5 w-5" />,
-      bg: "bg-rose-100",
+      iconBg: "bg-rose-100",
+      iconText: "text-rose-700",
+      accent: "from-rose-100/80",
     },
   ];
 
@@ -251,11 +278,23 @@ function PracticeGrid() {
             key={it.href}
             href={it.href}
             className={cn(
-              "group relative rounded-[26px] p-5 border border-white/60 shadow-soft active:scale-[0.98] transition overflow-hidden min-h-[140px] flex flex-col justify-between",
-              it.bg,
+              "group relative rounded-[24px] bg-white/88 p-5 border border-white shadow-soft active:scale-[0.98] transition overflow-hidden min-h-[140px] flex flex-col justify-between hover:-translate-y-0.5 hover:shadow-pop",
             )}
           >
-            <div className="h-10 w-10 rounded-2xl flex items-center justify-center text-ink bg-white">
+            <div
+              aria-hidden
+              className={cn(
+                "absolute inset-y-0 right-0 w-24 bg-gradient-to-l to-transparent opacity-80",
+                it.accent,
+              )}
+            />
+            <div
+              className={cn(
+                "h-11 w-11 rounded-2xl flex items-center justify-center ring-1 ring-white/80 shadow-[0_8px_20px_rgba(23,23,23,0.06)]",
+                it.iconBg,
+                it.iconText,
+              )}
+            >
               {it.icon}
             </div>
             <div>
@@ -269,65 +308,72 @@ function PracticeGrid() {
   );
 }
 
-type ScoredItem = {
-  kind: "writing" | "speaking";
-  id: string;
-  title: string;
-  createdAt: string;
-  band: number;
-};
-
-function collectScored(attempts: Attempt[], sessions: SpeakingSession[]): ScoredItem[] {
-  const w: ScoredItem[] = attempts
-    .filter((a) => a.status === "graded" && a.result)
-    .map((a) => ({
-      kind: "writing" as const,
-      id: a.id,
-      title: a.promptSnapshot.title,
-      createdAt: a.createdAt,
-      band: a.result!.overallBand,
-    }));
-  const s: ScoredItem[] = sessions
-    .filter((sess) => sess.status === "scored" && sess.score)
-    .map((sess) => ({
-      kind: "speaking" as const,
-      id: sess.id,
-      title: sess.topicSnapshot.title,
-      createdAt: sess.createdAt,
-      band: sess.score!.overallBand,
-    }));
-  return [...w, ...s].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+function MockTestCTA() {
+  return (
+    <section className="mt-8">
+      <Link
+        href="/mock"
+        className="group relative block rounded-[26px] p-5 bg-gradient-to-br from-ink to-stone-800 text-white shadow-pop active:scale-[0.99] transition overflow-hidden"
+      >
+        <div className="absolute inset-0 pointer-events-none opacity-30">
+          <div className="absolute -top-10 -right-8 h-32 w-32 rounded-full bg-violet-500 blur-3xl" />
+          <div className="absolute -bottom-10 -left-6 h-32 w-32 rounded-full bg-rose-400 blur-3xl" />
+        </div>
+        <div className="relative flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
+            <ClipboardCheck className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-white/60">
+              New · Mock test
+            </div>
+            <h3 className="mt-1 text-lg font-bold tracking-tight">Take the full 4-section mock</h3>
+            <div className="mt-0.5 text-[11px] text-white/60">
+              Strict timer, no pause — Listening → Reading → Writing → Speaking
+            </div>
+          </div>
+          <ArrowUpRight className="h-5 w-5 text-white/70 group-hover:translate-x-0.5 transition" />
+        </div>
+      </Link>
+    </section>
+  );
 }
 
 function ProgressCard({
-  attempts,
-  sessions,
+  mocks,
   ready,
 }: {
-  attempts: Attempt[];
-  sessions: SpeakingSession[];
+  mocks: MockTestSession[];
   ready: boolean;
 }) {
-  const scored = useMemo(() => collectScored(attempts, sessions), [attempts, sessions]);
-  const recent = scored.slice(-7);
-  const latest = recent[recent.length - 1]?.band;
-  const prev = recent[recent.length - 2]?.band;
+  const completed = useMemo(
+    () =>
+      mocks
+        .filter((m) => m.status === "completed" && m.overallBand != null)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [mocks],
+  );
+  const recent = completed.slice(-7);
+  const latest = recent[recent.length - 1]?.overallBand;
+  const prev = recent[recent.length - 2]?.overallBand;
   const delta = latest != null && prev != null ? latest - prev : null;
   const avg =
-    recent.length > 0 ? recent.reduce((s, x) => s + x.band, 0) / recent.length : null;
+    recent.length > 0
+      ? recent.reduce((s, x) => s + (x.overallBand ?? 0), 0) / recent.length
+      : null;
 
   return (
     <section className="mt-5">
       <div className="bg-white rounded-3xl border border-black/[0.06] shadow-soft p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink/55">
-            Progress
+            Mock test progress
           </div>
           <Link
             href="/dashboard"
             className="text-[11px] text-ink/55 inline-flex items-center gap-0.5"
           >
-            History <ChevronRight className="h-3 w-3" />
+            Report <ChevronRight className="h-3 w-3" />
           </Link>
         </div>
 
@@ -335,7 +381,11 @@ function ProgressCard({
           <div className="h-16 rounded-xl bg-stone-100 animate-pulse" />
         ) : latest == null ? (
           <div className="py-3 text-sm text-ink/55">
-            No graded attempts yet — start a session to see your trend.
+            No completed mock tests yet —{" "}
+            <Link href="/mock" className="font-semibold text-violet-600 underline-offset-4 hover:underline">
+              take your first mock
+            </Link>{" "}
+            to start tracking your overall band.
           </div>
         ) : (
           <div className="flex items-end justify-between gap-4">
@@ -368,7 +418,7 @@ function ProgressCard({
               )}
             </div>
             <div className="shrink-0">
-              <Sparkline values={recent.map((r) => r.band)} />
+              <Sparkline values={recent.map((r) => r.overallBand!).filter((v) => typeof v === "number")} />
             </div>
           </div>
         )}

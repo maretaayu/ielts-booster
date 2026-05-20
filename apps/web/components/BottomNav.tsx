@@ -37,7 +37,8 @@ const ITEMS: Array<{
       p.startsWith("/read") ||
       p.startsWith("/speak") ||
       p.startsWith("/vocab") ||
-      p.startsWith("/review"),
+      p.startsWith("/review") ||
+      p.startsWith("/mock"),
   },
   {
     key: "plan",

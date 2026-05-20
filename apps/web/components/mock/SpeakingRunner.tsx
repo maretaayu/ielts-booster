@@ -1,21 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  CircleAlert,
-  Loader2,
-  Mic,
-  PhoneOff,
-  Sparkles,
-} from "lucide-react";
-import { useConversation, ConversationProvider } from "@elevenlabs/react";
-import type { UserProfile } from "@ielts/shared";
+import { CircleAlert, Loader2, Mic, PhoneOff, Sparkles } from "lucide-react";
+import { ConversationProvider, useConversation } from "@elevenlabs/react";
+import type { SpeakingTopic } from "@ielts/shared";
 import { api, getOrCreateUserId } from "@/lib/api";
 import { ClassroomScene } from "@/components/ClassroomScene";
 import { cn } from "@/lib/utils";
+
+interface Props {
+  topicId: string;
+  startedAt: number;
+  onComplete: (result: { sessionId: string; band: number }) => void;
+  expireSignal: number;
+}
+
+export function SpeakingRunner(props: Props) {
+  return (
+    <ConversationProvider>
+      <SpeakingRunnerInner {...props} />
+    </ConversationProvider>
+  );
+}
 
 type Phase = "intro" | "connecting" | "live" | "ending" | "scoring";
 
@@ -25,55 +31,41 @@ interface CapturedMessage {
   elapsedSeconds: number;
 }
 
-interface TopicInfo {
-  id: string;
-  title: string;
-  part: "part1" | "part2" | "part3";
-  theme: string;
-  cueCardBullets: string[] | null;
-}
-
-const PART_LABEL: Record<TopicInfo["part"], string> = {
+const PART_LABEL: Record<SpeakingTopic["part"], string> = {
   part1: "Part 1 · Interview",
   part2: "Part 2 · Cue Card",
   part3: "Part 3 · Discussion",
 };
 
-export default function SpeakSession() {
-  return (
-    <ConversationProvider>
-      <SpeakSessionContent />
-    </ConversationProvider>
-  );
-}
-
-function SpeakSessionContent() {
-  const params = useParams<{ topicId: string }>();
-  const router = useRouter();
-
+function SpeakingRunnerInner({ topicId, startedAt, onComplete, expireSignal }: Props) {
+  const [topic, setTopic] = useState<SpeakingTopic | null>(null);
   const [phase, setPhase] = useState<Phase>("intro");
-  const [topic, setTopic] = useState<TopicInfo | null>(null);
-  const [_profile, setProfile] = useState<UserProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
+  const phaseRef = useRef<Phase>("intro");
+  phaseRef.current = phase;
   const messagesRef = useRef<CapturedMessage[]>([]);
   const sessionStartRef = useRef<number>(0);
-  const ttlTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    api.getSpeakingTopic(topicId).then(setTopic).catch((e) => setError(e.message));
+  }, [topicId]);
 
   const conversation = useConversation({
     onConnect: () => {
       setPhase("live");
       sessionStartRef.current = Date.now();
       messagesRef.current = [];
-      ttlTimerRef.current = setInterval(() => {
+      tickRef.current = setInterval(() => {
         setElapsed(Math.round((Date.now() - sessionStartRef.current) / 1000));
       }, 1000);
     },
     onDisconnect: () => {
-      if (ttlTimerRef.current) {
-        clearInterval(ttlTimerRef.current);
-        ttlTimerRef.current = null;
+      if (tickRef.current) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
       }
       if (phaseRef.current === "live" || phaseRef.current === "ending") {
         void submitForScoring();
@@ -94,37 +86,12 @@ function SpeakSessionContent() {
     },
   });
 
-  const phaseRef = useRef<Phase>("intro");
-  phaseRef.current = phase;
-
-  useEffect(() => {
-    api
-      .getSpeakingTopic(params.topicId)
-      .then((t) =>
-        setTopic({
-          id: t.id,
-          title: t.title,
-          part: t.part,
-          theme: t.theme,
-          cueCardBullets: t.cueCardBullets ?? null,
-        }),
-      )
-      .catch((e: Error) => setError(e.message));
-    api
-      .getProfile(getOrCreateUserId())
-      .then(setProfile)
-      .catch(() => {
-        /* anonymous ok */
-      });
-  }, [params.topicId]);
-
   async function startSession() {
     setError(null);
     setPhase("connecting");
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
-      const init = await api.initConversation(params.topicId);
-      setTopic(init.topic);
+      const init = await api.initConversation(topicId);
       await conversation.startSession({
         signedUrl: init.signedUrl,
         dynamicVariables: init.dynamicVariables,
@@ -141,36 +108,59 @@ function SpeakSessionContent() {
     try {
       await conversation.endSession();
     } catch {
-      // onDisconnect will fire via socket close
+      // socket close will trigger onDisconnect → scoring
     }
   }
 
   async function submitForScoring() {
-    if (messagesRef.current.length === 0 || !topic) {
-      setPhase("intro");
+    if (!topic) {
+      onComplete({ sessionId: "", band: 0 });
       return;
     }
     setPhase("scoring");
     try {
       const userId = getOrCreateUserId();
-      const totalSeconds = Math.max(1, Math.round((Date.now() - sessionStartRef.current) / 1000));
+      const totalSeconds = Math.max(
+        1,
+        Math.round((Date.now() - (sessionStartRef.current || startedAt)) / 1000),
+      );
+      if (messagesRef.current.length === 0) {
+        onComplete({ sessionId: "", band: 0 });
+        return;
+      }
       const session = await api.scoreRealtime({
         userId,
-        topicId: topic.id,
+        topicId,
         totalSeconds,
         messages: messagesRef.current,
       });
-      router.push(`/speak/result/${session.id}`);
+      onComplete({ sessionId: session.id, band: session.score?.overallBand ?? 0 });
     } catch (e) {
       setError((e as Error).message);
-      setPhase("intro");
+      onComplete({ sessionId: "", band: 0 });
     }
   }
 
+  useEffect(() => {
+    if (expireSignal > 0) {
+      if (phaseRef.current === "live") void endSession();
+      else if (phaseRef.current === "intro" || phaseRef.current === "connecting") {
+        onComplete({ sessionId: "", band: 0 });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expireSignal]);
+
+  useEffect(() => {
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, []);
+
   if (!topic && !error) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#f5e6cd] text-ink/60">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading topic…
+      <div className="flex items-center gap-2 text-ink/60">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading topic…
       </div>
     );
   }
@@ -178,17 +168,14 @@ function SpeakSessionContent() {
   const speaking = conversation.isSpeaking;
 
   return (
-    <div className="fixed inset-0 overflow-hidden">
+    <div className="fixed inset-0 z-30 overflow-hidden">
       <ClassroomScene speaking={phase === "live" ? speaking : false} />
 
-      {/* Top bar — Back + Timer */}
+      {/* Top bar — mock label + timer (no back button; orchestrator owns navigation) */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-20">
-        <Link
-          href="/speak"
-          className="inline-flex items-center gap-2 h-9 px-3 rounded-full bg-white/85 backdrop-blur-md text-sm text-ink/80 shadow-soft border border-white/60 hover:bg-white"
-        >
-          <ArrowLeft className="h-4 w-4" /> All topics
-        </Link>
+        <span className="inline-flex items-center gap-2 h-9 px-3 rounded-full bg-white/85 backdrop-blur-md text-[11px] uppercase tracking-wider font-semibold text-ink/70 shadow-soft border border-white/60">
+          Mock · Speaking
+        </span>
         {phase === "live" && (
           <span className="inline-flex items-center gap-2 text-xs tabular-nums font-mono bg-white/85 backdrop-blur-md rounded-full border border-white/60 px-3 py-1.5 text-ink/80 shadow-soft">
             <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
@@ -197,7 +184,7 @@ function SpeakSessionContent() {
         )}
       </div>
 
-      {/* Bottom floating dock */}
+      {/* Bottom dock */}
       <div className="absolute inset-x-0 bottom-0 z-20 px-3 sm:px-6 pb-4 pt-10 pointer-events-none bg-gradient-to-t from-black/20 via-black/5 to-transparent">
         <div className="mx-auto max-w-md pointer-events-auto">
           {phase === "intro" && (
@@ -225,7 +212,7 @@ function SpeakSessionContent() {
           {phase === "ending" && (
             <StatusDock
               icon={<Loader2 className="h-4 w-4 animate-spin" />}
-              title="Ending session…"
+              title="Wrapping up…"
               sub="Closing the room."
             />
           )}
@@ -233,7 +220,7 @@ function SpeakSessionContent() {
             <StatusDock
               icon={<Sparkles className="h-4 w-4 text-violet-500 animate-pulse" />}
               title="Scoring your session…"
-              sub="Examiner is reviewing the transcript."
+              sub="Examiner is reviewing your responses."
             />
           )}
 
