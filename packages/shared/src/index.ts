@@ -1,3 +1,5 @@
+export * from "./placement-bank";
+
 export type TaskType = "task1-academic" | "task1-gt" | "task2";
 
 export type IeltsBand =
@@ -344,6 +346,43 @@ export interface ReadingAttempt {
 
 export type IeltsModule = "academic" | "general-training";
 
+export type CefrLevel = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
+
+export type PlacementCategory = "grammar" | "vocabulary" | "reading";
+
+export interface PlacementMcq {
+  id: string;
+  category: PlacementCategory;
+  cefr: CefrLevel;
+  prompt: string;
+  options: string[];
+  /** Index of the correct option in `options`. */
+  answer: number;
+  explanation?: string;
+}
+
+export interface PlacementWritingPrompt {
+  id: string;
+  /** Intended target level — used to pick a prompt matching the user's MCQ track. */
+  cefr: CefrLevel;
+  prompt: string;
+  minWords: number;
+  maxWords: number;
+  timeMinutes: number;
+}
+
+export interface PlacementResult {
+  cefr: CefrLevel;
+  /** IELTS band estimate (0–9, half-steps) so dashboard & plan stay compatible with currentBand. */
+  estimatedBand: number;
+  takenAt: string;
+  mcqCorrect: number;
+  mcqAsked: number;
+  writingBand?: number;
+  /** Optional per-category accuracy for future personalization (e.g. weakest area surfacing). */
+  skillBreakdown?: Partial<Record<PlacementCategory, { correct: number; asked: number }>>;
+}
+
 export interface UserProfile {
   userId: string;
   name: string;
@@ -354,6 +393,8 @@ export interface UserProfile {
   dailyMinutes: number;
   weakAreas: SkillArea[];
   onboardedAt: string;
+  /** Set after the user completes the placement test. Absent if they skipped. */
+  placement?: PlacementResult;
 }
 
 // ===== Calendar =====

@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${jakarta.variable} ${jakarta.className}`}>
+    <html lang="en" className={`${jakarta.variable} ${jakarta.className}`} suppressHydrationWarning>
       <body className={jakarta.className}>
         <OnboardingGate />
         <div className="min-h-screen flex flex-col">

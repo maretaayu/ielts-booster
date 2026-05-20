@@ -1,6 +1,7 @@
 import type {
   Attempt,
   CalendarSyncResult,
+  CefrLevel,
   CreateStudyPlanRequest,
   GradeRequest,
   GradeResponse,
@@ -8,6 +9,8 @@ import type {
   ListeningTest,
   ListeningTestSummary,
   MockTestSession,
+  PlacementCategory,
+  PlacementResult,
   Prompt,
   ReadingAttempt,
   ReadingPassage,
@@ -197,6 +200,33 @@ export const api = {
   listMockTests: (userId: string) =>
     request<{ sessions: MockTestSession[] }>(
       `/mock-tests?userId=${encodeURIComponent(userId)}`,
+    ),
+
+  scorePlacementWriting: (body: {
+    essay: string;
+    promptText: string;
+    targetCefr: CefrLevel;
+  }) =>
+    request<{ cefr: CefrLevel; estimatedBand: number; summary: string }>(
+      `/placement/score-writing`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  savePlacement: (
+    userId: string,
+    body: {
+      cefr: CefrLevel;
+      estimatedBand: number;
+      mcqCorrect: number;
+      mcqAsked: number;
+      writingBand?: number;
+      skillBreakdown?: Partial<
+        Record<PlacementCategory, { correct: number; asked: number }>
+      >;
+    },
+  ) =>
+    request<{ ok: true; placement: PlacementResult }>(
+      `/profile/${encodeURIComponent(userId)}/placement`,
+      { method: "PATCH", body: JSON.stringify(body) },
     ),
 
   scoreRealtime: (body: {

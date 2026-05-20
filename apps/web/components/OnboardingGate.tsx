@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api, isOnboarded, markOnboarded, ONBOARDED_KEY } from "@/lib/api";
 
-const ALLOW_PREFIXES = ["/onboarding", "/auth"];
+const ALLOW_PREFIXES = ["/onboarding", "/auth", "/getting-started", "/placement"];
 
 /**
  * Sends first-time visitors to /onboarding. Runs once on every route change.

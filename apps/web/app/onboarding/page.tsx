@@ -1,14 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpen,
   Briefcase,
   CalendarDays,
-  Clock,
+  Check,
   GraduationCap,
   Headphones,
   Loader2,
@@ -16,11 +16,17 @@ import {
   PenLine,
   Sparkles,
   Target,
-  UserRound,
+  Trophy,
+  X,
+  Zap,
 } from "lucide-react";
-import type { IeltsModule, SkillArea } from "@ielts/shared";
+import type { IeltsModule, PlacementResult, SkillArea } from "@ielts/shared";
 import { api, getOrCreateUserId, markOnboarded } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const PLACEMENT_PENDING_KEY = "ielts.placement.pending";
+const WIZARD_KEY = "ielts.wizard";
+const STAGE_KEY = "ielts.wizard.stage";
 
 interface Wizard {
   name: string;
@@ -30,9 +36,36 @@ interface Wizard {
   examDate: string;
   dailyMinutes: number;
   weakAreas: SkillArea[];
+  placement: PlacementResult | null;
+  placementSkipped: boolean;
 }
 
 type SubmitMode = "withPlan" | "withoutPlan";
+
+type Stage =
+  | "welcome"
+  | "name"
+  | "module"
+  | "placement"
+  | "placement-celebration"
+  | "plan-offer"
+  | "target"
+  | "date"
+  | "time"
+  | "weak"
+  | "ready";
+
+const DEFAULTS: Wizard = {
+  name: "",
+  module: "",
+  currentBand: 0,
+  targetBand: 7,
+  examDate: "",
+  dailyMinutes: 45,
+  weakAreas: [],
+  placement: null,
+  placementSkipped: false,
+};
 
 const PLAN_BUILDER_PHRASES = [
   "You've got this. ✨",
@@ -43,35 +76,65 @@ const PLAN_BUILDER_PHRASES = [
   "Hard now, easy on exam day.",
   "Mistakes = free upgrades.",
   "Keep going. You're closer than you think.",
-  "One more drill. One step closer.",
-  "You're not late. You're right on time.",
 ];
 
-const DEFAULTS: Wizard = {
-  name: "",
-  module: "",
-  currentBand: 5.5,
-  targetBand: 7,
-  examDate: "",
-  dailyMinutes: 45,
-  weakAreas: [],
-};
+const NAME_AFFIRMATIONS = ["Lovely name!", "Nice to meet you!", "Hi there!", "Hello!"];
+const TARGET_AFFIRMATIONS = [
+  "Love the ambition!",
+  "Bold goal — let's chase it!",
+  "That's a great stretch!",
+  "Future-you will thank you!",
+];
+const DATE_AFFIRMATIONS = [
+  "Marked the calendar!",
+  "Locked in!",
+  "Let's start the countdown!",
+];
+const TIME_AFFIRMATIONS = [
+  "Consistency wins.",
+  "Solid commitment!",
+  "Day by day, band by band.",
+];
+const SKILLS_AFFIRMATIONS = [
+  "Focused plan incoming!",
+  "Smart focus.",
+  "Got it — let's lock it in.",
+];
+const PLACEMENT_AFFIRMATIONS = [
+  "You crushed it!",
+  "Amazing work!",
+  "Look at you go!",
+  "Beautifully done!",
+];
 
-const STEPS = ["name", "module", "current", "target", "date", "time", "weak"] as const;
-type StepKey = (typeof STEPS)[number];
+function pickPhrase(arr: string[], seed: string): string {
+  if (arr.length === 0) return "";
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return arr[h % arr.length]!;
+}
 
-const SKILL_LABEL: Record<SkillArea, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
-  writing: { label: "Writing", icon: PenLine },
-  reading: { label: "Reading", icon: BookOpen },
-  listening: { label: "Listening", icon: Headphones },
-  speaking: { label: "Speaking", icon: Mic },
-  vocabulary: { label: "Vocabulary", icon: Sparkles },
-  grammar: { label: "Grammar", icon: GraduationCap },
-};
+const STAGE_ORDER: Stage[] = [
+  "welcome",
+  "name",
+  "module",
+  "placement",
+  "placement-celebration",
+  "plan-offer",
+  "target",
+  "date",
+  "time",
+  "weak",
+  "ready",
+];
+
+function stageIdx(s: Stage): number {
+  return STAGE_ORDER.indexOf(s);
+}
 
 export default function OnboardingPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh]" />}>
+    <Suspense fallback={<div className="min-h-[100dvh] bg-white" />}>
       <Onboarding />
     </Suspense>
   );
@@ -79,38 +142,73 @@ export default function OnboardingPage() {
 
 function Onboarding() {
   const router = useRouter();
-  const [step, setStep] = useState(0);
   const [data, setData] = useState<Wizard>(DEFAULTS);
+  const [stage, setStage] = useState<Stage>("welcome");
   const [submitting, setSubmitting] = useState<SubmitMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
+  // ---- Hydrate ----
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem("ielts.wizard") : null;
+    if (typeof window === "undefined") return;
+    let next: Wizard = DEFAULTS;
+    const saved = localStorage.getItem(WIZARD_KEY);
     if (saved) {
       try {
-        setData({ ...DEFAULTS, ...(JSON.parse(saved) as Wizard) });
-      } catch {
-        // ignore
-      }
+        next = { ...DEFAULTS, ...(JSON.parse(saved) as Partial<Wizard>) };
+      } catch {}
     }
+    let justReturnedFromPlacement = false;
+    const pending = localStorage.getItem(PLACEMENT_PENDING_KEY);
+    if (pending) {
+      try {
+        const placement = JSON.parse(pending) as PlacementResult;
+        next = {
+          ...next,
+          placement,
+          currentBand: placement.estimatedBand,
+          placementSkipped: false,
+        };
+        justReturnedFromPlacement = true;
+      } catch {}
+    }
+    setData(next);
+
+    const savedStage = localStorage.getItem(STAGE_KEY) as Stage | null;
+    if (justReturnedFromPlacement) {
+      setStage("placement-celebration");
+    } else {
+      setStage(savedStage ?? "welcome");
+    }
+    setHydrated(true);
   }, []);
+
   useEffect(() => {
-    if (typeof window !== "undefined") localStorage.setItem("ielts.wizard", JSON.stringify(data));
-  }, [data]);
+    if (!hydrated || typeof window === "undefined") return;
+    localStorage.setItem(WIZARD_KEY, JSON.stringify(data));
+  }, [data, hydrated]);
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    localStorage.setItem(STAGE_KEY, stage);
+  }, [stage, hydrated]);
+
+  useEffect(() => {
+    if (stage !== "placement-celebration") return;
+    const id = setTimeout(() => setStage("plan-offer"), 2400);
+    return () => clearTimeout(id);
+  }, [stage]);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  const current: StepKey = STEPS[step] ?? "weak";
-  const canAdvance = isStepValid(current, data);
-  const isLast = step === STEPS.length - 1;
-
-  function next() {
-    if (!canAdvance) return;
-    if (!isLast) setStep((s) => s + 1);
-    else submit("withPlan");
-  }
   function back() {
-    if (step > 0) setStep((s) => s - 1);
+    const i = stageIdx(stage);
+    if (i <= 0) return;
+    const prev = STAGE_ORDER[i - 1];
+    if (prev === "placement-celebration" && i - 2 >= 0) {
+      setStage(STAGE_ORDER[i - 2]!);
+    } else if (prev) {
+      setStage(prev);
+    }
   }
 
   async function submit(mode: SubmitMode) {
@@ -118,19 +216,40 @@ function Onboarding() {
     setError(null);
     try {
       const userId = getOrCreateUserId();
+      const examDate =
+        data.examDate ||
+        new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const weakAreas =
+        data.weakAreas.length > 0 ? data.weakAreas : (["writing", "speaking"] as SkillArea[]);
+
       await api.saveProfile({
         userId,
         name: data.name.trim(),
         module: data.module as IeltsModule,
         currentBand: data.currentBand,
         targetBand: data.targetBand,
-        examDate: data.examDate,
+        examDate,
         dailyMinutes: data.dailyMinutes,
-        weakAreas: data.weakAreas,
+        weakAreas,
       });
 
+      if (data.placement) {
+        try {
+          await api.savePlacement(userId, {
+            cefr: data.placement.cefr,
+            estimatedBand: data.placement.estimatedBand,
+            mcqCorrect: data.placement.mcqCorrect,
+            mcqAsked: data.placement.mcqAsked,
+            writingBand: data.placement.writingBand,
+            skillBreakdown: data.placement.skillBreakdown,
+          });
+        } catch {}
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(PLACEMENT_PENDING_KEY);
+        }
+      }
+
       if (mode === "withoutPlan") {
-        // Profile saved; skip plan generation and explore the app directly.
         markOnboarded("");
         router.push("/");
         return;
@@ -139,9 +258,9 @@ function Onboarding() {
       const plan = await api.createStudyPlan({
         userId,
         targetBand: data.targetBand,
-        examDate: data.examDate,
-        currentBand: data.currentBand,
-        weakAreas: data.weakAreas,
+        examDate,
+        currentBand: data.currentBand > 0 ? data.currentBand : undefined,
+        weakAreas,
         dailyMinutes: data.dailyMinutes,
       });
       markOnboarded(plan.id);
@@ -156,84 +275,1404 @@ function Onboarding() {
     return <BuildingPlanScreen name={data.name.trim()} />;
   }
 
+  const visibleStages: Stage[] = [
+    "name",
+    "module",
+    "placement",
+    "plan-offer",
+    "target",
+    "date",
+    "time",
+    "weak",
+    "ready",
+  ];
+  const progress =
+    stage === "welcome"
+      ? 0
+      : stage === "placement-celebration"
+      ? (visibleStages.indexOf("plan-offer") / visibleStages.length) * 100
+      : Math.max(0, (visibleStages.indexOf(stage) / visibleStages.length) * 100);
+
+  const showHeader = stage !== "welcome" && stage !== "placement-celebration";
+
   return (
-    <div className="min-h-[100dvh] flex flex-col px-4 py-6 sm:py-10 max-w-md mx-auto">
-      {/* Progress */}
-      <div className="flex items-center gap-1.5 mb-6">
-        {STEPS.map((_, i) => (
-          <div
-            key={i}
-            className={cn(
-              "h-1.5 rounded-full flex-1 transition-all",
-              i < step ? "bg-ink/80" : i === step ? "bg-ink" : "bg-ink/15",
-            )}
+    <div className="min-h-[100dvh] flex flex-col bg-white relative overflow-hidden">
+      {/* Ambient brand wash — subtle, not pastel chaos */}
+      <div
+        aria-hidden
+        className="absolute -top-32 -right-24 h-80 w-80 rounded-full bg-sky-200/30 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="absolute -bottom-40 -left-32 h-96 w-96 rounded-full bg-sky-100/40 blur-3xl"
+      />
+
+      <VisualKeyframes />
+      {showHeader && (
+        <TopBar progress={progress} onBack={back} canBack={stageIdx(stage) > stageIdx("name")} />
+      )}
+
+      <main className="flex-1 flex flex-col px-5 pt-2 pb-6 relative">
+        <div className="max-w-md w-full mx-auto flex-1 flex flex-col">
+          <ScreenRouter
+            stage={stage}
+            setStage={setStage}
+            data={data}
+            setData={setData}
+            today={today}
+            submitting={submitting}
+            error={error}
+            onSubmitWithPlan={() => submit("withPlan")}
+            onSubmitWithoutPlan={() => submit("withoutPlan")}
           />
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between mb-8">
-        <button
-          onClick={back}
-          disabled={step === 0}
-          className="icon-pill disabled:opacity-30"
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-4 w-4 text-ink/70" />
-        </button>
-        <span className="text-xs text-ink/50 font-medium">
-          {step + 1} / {STEPS.length}
-        </span>
-        <div className="w-10" />
-      </div>
-
-      <div className="flex-1 flex flex-col">
-        <StepView step={current} data={data} setData={setData} today={today} />
-      </div>
-
-      {error && (
-        <div className="mt-4 rounded-xl bg-rose-100/70 border border-rose-200 p-3 text-sm text-rose-800">
-          {error}
         </div>
-      )}
+      </main>
+    </div>
+  );
+}
 
-      <button
-        onClick={next}
-        disabled={!canAdvance || submitting !== null}
-        className="btn-pill mt-6 justify-center w-full text-base py-3 disabled:opacity-40"
-      >
-        {isLast ? (
-          <>
-            Generate my plan <Sparkles className="h-4 w-4" />
-          </>
-        ) : (
-          <>
-            Next <ArrowRight className="h-4 w-4" />
-          </>
-        )}
-      </button>
+// ============================================================
+// Top bar
+// ============================================================
 
-      {isLast && (
+function TopBar({
+  progress,
+  onBack,
+  canBack,
+}: {
+  progress: number;
+  onBack: () => void;
+  canBack: boolean;
+}) {
+  return (
+    <header className="px-5 pt-5 sm:pt-7 relative z-10">
+      <div className="max-w-md mx-auto flex items-center gap-3">
         <button
-          onClick={() => submit("withoutPlan")}
-          disabled={!canAdvance || submitting !== null}
-          className="mt-3 w-full text-center text-sm font-semibold text-ink/65 hover:text-ink disabled:opacity-40 underline-offset-4 hover:underline"
+          onClick={onBack}
+          disabled={!canBack}
+          aria-label="Back"
+          className="h-9 w-9 rounded-full flex items-center justify-center text-ink/40 hover:text-ink/70 hover:bg-ink/5 disabled:opacity-30 disabled:hover:bg-transparent transition"
         >
-          {submitting === "withoutPlan" ? (
-            <span className="inline-flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" /> Saving your profile…
-            </span>
-          ) : (
-            "Skip — I'll build my plan later"
-          )}
+          <X className="h-5 w-5" />
         </button>
-      )}
+        <div className="flex-1 h-2.5 rounded-full bg-ink/8 overflow-hidden">
+          <div
+            className="h-full bg-sky-500 rounded-full transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+    </header>
+  );
+}
 
-      <p className="mt-4 text-center text-[11px] text-ink/40">
-        We use these answers to build your daily IELTS schedule.
+// ============================================================
+// Screen router
+// ============================================================
+
+function ScreenRouter({
+  stage,
+  setStage,
+  data,
+  setData,
+  today,
+  submitting,
+  error,
+  onSubmitWithPlan,
+  onSubmitWithoutPlan,
+}: {
+  stage: Stage;
+  setStage: (s: Stage) => void;
+  data: Wizard;
+  setData: (u: (prev: Wizard) => Wizard) => void;
+  today: string;
+  submitting: SubmitMode | null;
+  error: string | null;
+  onSubmitWithPlan: () => void;
+  onSubmitWithoutPlan: () => void;
+}) {
+  switch (stage) {
+    case "welcome":
+      return <WelcomeScreen onStart={() => setStage("name")} />;
+    case "name":
+      return (
+        <NameScreen
+          value={data.name}
+          onChange={(v) => setData((d) => ({ ...d, name: v }))}
+          onContinue={() => setStage("module")}
+        />
+      );
+    case "module":
+      return (
+        <ModuleScreen
+          name={data.name.trim()}
+          onPick={(m) => {
+            setData((d) => ({ ...d, module: m }));
+            setStage("placement");
+          }}
+        />
+      );
+    case "placement":
+      return (
+        <PlacementScreen
+          onSkip={() => {
+            setData((d) => ({
+              ...d,
+              placement: null,
+              placementSkipped: true,
+              currentBand: 0,
+            }));
+            setStage("plan-offer");
+          }}
+        />
+      );
+    case "placement-celebration":
+      return data.placement ? (
+        <PlacementCelebrationScreen
+          placement={data.placement}
+          name={data.name.trim()}
+        />
+      ) : (
+        <WelcomeScreen onStart={() => setStage("plan-offer")} />
+      );
+    case "plan-offer":
+      return (
+        <PlanOfferScreen
+          placement={data.placement}
+          name={data.name.trim()}
+          submitting={submitting}
+          onBuild={() => setStage("target")}
+          onSkip={onSubmitWithoutPlan}
+        />
+      );
+    case "target":
+      return (
+        <TargetScreen
+          value={data.targetBand}
+          minBand={Math.max(4, data.currentBand > 0 ? data.currentBand : 4)}
+          onChange={(v) => setData((d) => ({ ...d, targetBand: v }))}
+          onContinue={() => setStage("date")}
+          onSkip={onSubmitWithoutPlan}
+          submitting={submitting}
+        />
+      );
+    case "date":
+      return (
+        <DateScreen
+          value={data.examDate}
+          today={today}
+          onChange={(v) => setData((d) => ({ ...d, examDate: v }))}
+          onContinue={() => setStage("time")}
+          onSkip={onSubmitWithoutPlan}
+          submitting={submitting}
+        />
+      );
+    case "time":
+      return (
+        <TimeScreen
+          value={data.dailyMinutes}
+          onPick={(m) => {
+            setData((d) => ({ ...d, dailyMinutes: m }));
+            setStage("weak");
+          }}
+          onSkip={onSubmitWithoutPlan}
+          submitting={submitting}
+        />
+      );
+    case "weak":
+      return (
+        <WeakScreen
+          selected={data.weakAreas}
+          onToggle={(k) =>
+            setData((d) => ({
+              ...d,
+              weakAreas: d.weakAreas.includes(k)
+                ? d.weakAreas.filter((x) => x !== k)
+                : [...d.weakAreas, k],
+            }))
+          }
+          onContinue={() => setStage("ready")}
+        />
+      );
+    case "ready":
+      return (
+        <ReadyScreen
+          name={data.name.trim()}
+          targetBand={data.targetBand}
+          examDate={data.examDate}
+          submitting={submitting}
+          error={error}
+          onGenerate={onSubmitWithPlan}
+          onSkip={onSubmitWithoutPlan}
+        />
+      );
+  }
+}
+
+// ============================================================
+// Screens
+// ============================================================
+
+function WelcomeScreen({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="flex-1 flex flex-col w-full animate-[fadeIn_320ms_ease-out] relative">
+      <MeshBackdrop />
+
+      {/* Hero composition: just the mascot, with breathing room */}
+      <div className="relative flex-1 flex flex-col items-center justify-center px-6">
+        <FriendlyMascot mood="wave" size="xl" />
+        <div className="mt-12 text-center">
+          <h1 className="text-[2.5rem] sm:text-[3rem] font-extrabold tracking-tight leading-[1] text-ink">
+            Hi, I'm Lumi.
+          </h1>
+          <p className="mt-5 text-[17px] text-ink/55 font-medium leading-relaxed max-w-[300px] mx-auto">
+            Your AI study buddy. I'll get you to your dream IELTS band — one step at a time.
+          </p>
+        </div>
+      </div>
+
+      <div className="relative px-5 pb-7 pt-2">
+        <PrimaryButton onClick={onStart}>Nice to meet you →</PrimaryButton>
+      </div>
+    </div>
+  );
+}
+
+/** Soft mesh-gradient backdrop using blurred pastel orbs. */
+function MeshBackdrop() {
+  return (
+    <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden -z-0">
+      <div className="absolute -top-16 -right-10 h-64 w-64 rounded-full bg-violet-200/40 blur-3xl" />
+      <div className="absolute top-1/3 -left-10 h-48 w-48 rounded-full bg-rose-200/30 blur-3xl" />
+      <div className="absolute bottom-10 right-1/4 h-56 w-56 rounded-full bg-amber-100/40 blur-3xl" />
+    </div>
+  );
+}
+
+/** A floating stack of band cards with overlap + drop shadows + slight tilt.
+    Soft, layered, modern — gives the page a "fresh" hero visual without 3D assets. */
+function FloatingBandStack() {
+  return (
+    <div className="relative h-[260px] w-[280px]">
+      {/* Background glow behind the stack */}
+      <div
+        aria-hidden
+        className="absolute inset-6 rounded-[44px] bg-gradient-to-br from-sky-200/60 via-sky-100/30 to-amber-100/40 blur-2xl"
+      />
+
+      {/* Cards — layered with progressive rotation and y-offset */}
+      <BandCard
+        band="6.0"
+        label="Modest"
+        tint="rose"
+        className="absolute left-0 top-[148px] rotate-[-9deg] z-[1]"
+        scale={0.85}
+      />
+      <BandCard
+        band="7.0"
+        label="Good"
+        tint="sky"
+        className="absolute left-[34px] top-[96px] rotate-[-4deg] z-[2]"
+        scale={0.92}
+      />
+      <BandCard
+        band="8.0"
+        label="Very good"
+        tint="violet"
+        className="absolute left-[78px] top-[50px] rotate-[2deg] z-[3]"
+      />
+      <BandCard
+        band="9.0"
+        label="Expert"
+        tint="gold"
+        className="absolute left-[130px] top-[6px] rotate-[8deg] z-[4]"
+        hero
+      />
+
+      {/* Subtle "you're here" pointer near the lower card */}
+      <div className="absolute left-[-12px] top-[200px] z-[5]">
+        <div className="inline-flex items-center gap-1.5 bg-ink text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full shadow-md">
+          You're here
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BandCard({
+  band,
+  label,
+  tint,
+  className,
+  hero = false,
+  scale = 1,
+}: {
+  band: string;
+  label: string;
+  tint: "sky" | "rose" | "violet" | "gold";
+  className?: string;
+  hero?: boolean;
+  scale?: number;
+}) {
+  const tones: Record<typeof tint, { bg: string; ring: string; numColor: string; labelColor: string }> = {
+    sky: {
+      bg: "bg-gradient-to-br from-white to-sky-50",
+      ring: "ring-sky-200/70",
+      numColor: "text-sky-700",
+      labelColor: "text-sky-600/70",
+    },
+    rose: {
+      bg: "bg-gradient-to-br from-white to-rose-50",
+      ring: "ring-rose-200/60",
+      numColor: "text-rose-600",
+      labelColor: "text-rose-500/70",
+    },
+    violet: {
+      bg: "bg-gradient-to-br from-white to-violet-50",
+      ring: "ring-violet-200/60",
+      numColor: "text-violet-700",
+      labelColor: "text-violet-600/70",
+    },
+    gold: {
+      bg: "bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500",
+      ring: "ring-amber-200/70",
+      numColor: "text-white drop-shadow-sm",
+      labelColor: "text-white/85",
+    },
+  };
+  const t = tones[tint];
+  return (
+    <div
+      className={cn(
+        "w-[100px] rounded-3xl px-4 py-3.5 flex flex-col items-center ring-1",
+        "shadow-[0_18px_38px_-12px_rgba(15,23,42,0.18)]",
+        t.bg,
+        t.ring,
+        hero && "shadow-[0_22px_48px_-12px_rgba(245,158,11,0.55)]",
+        className,
+      )}
+      style={{ transform: `${className?.includes("rotate") ? "" : ""} scale(${scale})` }}
+    >
+      <span className={cn("text-[34px] font-extrabold tabular-nums leading-none", t.numColor)}>
+        {band}
+      </span>
+      <span className={cn("mt-1 text-[10px] font-bold uppercase tracking-[0.1em]", t.labelColor)}>
+        {label}
+      </span>
+      {hero && <Sparkles className="absolute -top-2 -right-2 h-5 w-5 text-amber-200 drop-shadow-md" />}
+    </div>
+  );
+}
+
+/* === Decorative micro-elements floating around the hero === */
+function DecorDot({
+  className,
+  delay = 0,
+}: {
+  className: string;
+  delay?: number;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn("absolute rounded-full animate-[twinkle_3s_ease-in-out_infinite]", className)}
+      style={{ animationDelay: `${delay}s` }}
+    />
+  );
+}
+function DecorRing({
+  className,
+  delay = 0,
+}: {
+  className: string;
+  delay?: number;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "absolute rounded-full border-2 animate-[twinkle_3.4s_ease-in-out_infinite]",
+        className,
+      )}
+      style={{ animationDelay: `${delay}s` }}
+    />
+  );
+}
+function DecorStar({
+  className,
+  delay = 0,
+  size = 16,
+}: {
+  className: string;
+  delay?: number;
+  size?: number;
+}) {
+  return (
+    <Sparkles
+      aria-hidden
+      className={cn("absolute animate-[twinkle_2.6s_ease-in-out_infinite] drop-shadow", className)}
+      style={{ animationDelay: `${delay}s`, height: size, width: size }}
+    />
+  );
+}
+
+function NameScreen({
+  value,
+  onChange,
+  onContinue,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onContinue: () => void;
+}) {
+  const valid = value.trim().length >= 2;
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+        <FriendlyMascot size="md" />
+        <h1 className="mt-8 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+          What should I call you?
+        </h1>
+        <p className="mt-2 text-sm text-ink/55 font-medium">I'll get the spelling right, promise.</p>
+        <input
+          autoFocus
+          type="text"
+          maxLength={40}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && valid) onContinue();
+          }}
+          placeholder="Your name"
+          className="mt-8 w-full max-w-xs text-center text-xl font-bold py-4 rounded-2xl bg-white border-2 border-ink/10 focus:border-violet-400 focus:outline-none placeholder:text-ink/25 shadow-[0_8px_24px_-12px_rgba(139,92,246,0.25)]"
+        />
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onContinue} disabled={!valid}>
+          Continue
+        </PrimaryButton>
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+function ModuleScreen({
+  name,
+  onPick,
+}: {
+  name: string;
+  onPick: (m: IeltsModule) => void;
+}) {
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col justify-center">
+        <div className="flex flex-col items-center text-center">
+          <FriendlyMascot size="sm" />
+          <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+            Nice to meet you, {name}!
+          </h1>
+          <p className="mt-3 text-base text-ink/55 font-medium">
+            Which IELTS are you taking?
+          </p>
+        </div>
+        <div className="mt-8 space-y-3">
+          <BigChoice
+            onClick={() => onPick("academic")}
+            icon={GraduationCap}
+            label="Academic"
+            sub="For university & professional registration"
+            tone="brand"
+          />
+          <BigChoice
+            onClick={() => onPick("general-training")}
+            icon={Briefcase}
+            label="General Training"
+            sub="For migration, work & vocational"
+            tone="accent"
+          />
+        </div>
+      </div>
+    </ScreenShell>
+  );
+}
+
+function PlacementScreen({ onSkip }: { onSkip: () => void }) {
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+        <FriendlyMascot size="md" mood="thinking" />
+        <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+          The important bit.
+        </h1>
+        <p className="mt-3 text-base text-ink/60 font-medium leading-relaxed max-w-xs">
+          A quick <strong className="text-ink">5-minute test</strong> so I can actually
+          personalize your lessons — instead of guessing.
+        </p>
+
+        <div className="mt-7 w-full max-w-xs space-y-2.5 text-left">
+          <BulletCheck>10 adaptive questions</BulletCheck>
+          <BulletCheck>1 short writing sample</BulletCheck>
+          <BulletCheck>Get your CEFR level & starting band</BulletCheck>
+        </div>
+      </div>
+      <Footer>
+        <PrimaryLink href="/placement?from=onboarding">Start placement</PrimaryLink>
+        <button
+          onClick={onSkip}
+          className="mt-3 w-full text-center text-xs font-semibold text-ink/40 hover:text-ink/70 py-2"
+        >
+          I'll do it later
+        </button>
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+function PlacementCelebrationScreen({
+  placement,
+  name,
+}: {
+  placement: PlacementResult;
+  name: string;
+}) {
+  const affirmation = pickPhrase(PLACEMENT_AFFIRMATIONS, placement.cefr + name);
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 animate-[fadeIn_320ms_ease-out] relative overflow-hidden">
+      <ConfettiBurst />
+      <div className="relative">
+        <SunRays />
+        <FriendlyMascot size="lg" mood="celebrate" />
+        <SparkleParticles />
+      </div>
+      <p className="mt-7 inline-block bg-amber-100 text-amber-800 text-xs font-extrabold uppercase tracking-wider px-3 py-1 rounded-full animate-[bounceIn_500ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
+        {affirmation}
+      </p>
+      <h1 className="mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight text-ink leading-[1.05] animate-[fadeUp_500ms_300ms_both]">
+        You're at <span className="text-sky-600">{placement.cefr}</span>, {name}!
+      </h1>
+      <div className="mt-6 inline-flex items-baseline gap-3 bg-white rounded-3xl px-7 py-4 border-2 border-sky-200 shadow-[0_4px_0_rgba(14,165,233,0.08)] animate-[bounceIn_550ms_550ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
+        <span className="text-5xl font-extrabold text-sky-600 tabular-nums">
+          {placement.cefr}
+        </span>
+        <span className="text-base font-semibold text-ink/60">
+          ≈ Band {placement.estimatedBand.toFixed(1)}
+        </span>
+      </div>
+      <p className="mt-7 text-base text-ink/65 font-medium max-w-xs animate-[fadeUp_500ms_800ms_both]">
+        That's your starting line. Let's chart the path up.
       </p>
     </div>
   );
 }
+
+function PlanOfferScreen({
+  placement,
+  name,
+  submitting,
+  onBuild,
+  onSkip,
+}: {
+  placement: PlacementResult | null;
+  name: string;
+  submitting: SubmitMode | null;
+  onBuild: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+        <FriendlyMascot size="md" mood="wave" />
+        <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+          {placement ? "Want a daily plan?" : `Ready when you are, ${name}.`}
+        </h1>
+        <p className="mt-4 text-base text-ink/60 font-medium leading-relaxed max-w-xs">
+          {placement
+            ? "I'll map a step-by-step path from where you are to your target band."
+            : "We can refine your placement later. Want a daily plan now, or jump in?"}
+        </p>
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onBuild}>Build my daily plan</PrimaryButton>
+        <SkipLink onSkip={onSkip} submitting={submitting} label="Skip — just take me in" />
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+function TargetScreen({
+  value,
+  minBand,
+  onChange,
+  onContinue,
+  onSkip,
+  submitting,
+}: {
+  value: number;
+  minBand: number;
+  onChange: (v: number) => void;
+  onContinue: () => void;
+  onSkip: () => void;
+  submitting: SubmitMode | null;
+}) {
+  const bands: number[] = [];
+  for (let b = minBand; b <= 9; b += 0.5) bands.push(b);
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center">
+        <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
+          What band are you aiming for?
+        </h1>
+        <div className="mt-10 flex flex-col items-center">
+          <div className="text-[5rem] font-extrabold tabular-nums tracking-tight bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent leading-none">
+            {value.toFixed(1)}
+          </div>
+          <p className="mt-2 text-xs font-bold text-ink/45 uppercase tracking-[0.18em]">
+            {bandLabel(value)}
+          </p>
+        </div>
+        <div className="mt-9 grid grid-cols-5 gap-1.5 w-full max-w-xs">
+          {bands.map((b) => (
+            <button
+              key={b}
+              onClick={() => onChange(b)}
+              className={cn(
+                "rounded-xl py-2.5 text-sm font-bold transition",
+                value === b
+                  ? "bg-ink text-white shadow-md"
+                  : "bg-white border-2 border-ink/10 text-ink/70 hover:border-violet-300 hover:bg-violet-50",
+              )}
+            >
+              {b.toFixed(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onContinue}>Continue</PrimaryButton>
+        <SkipLink onSkip={onSkip} submitting={submitting} />
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+function DateScreen({
+  value,
+  today,
+  onChange,
+  onContinue,
+  onSkip,
+  submitting,
+}: {
+  value: string;
+  today: string;
+  onChange: (v: string) => void;
+  onContinue: () => void;
+  onSkip: () => void;
+  submitting: SubmitMode | null;
+}) {
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= today;
+  const days = valid ? daysUntil(value) : null;
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center">
+        <FriendlyMascot size="sm" />
+        <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
+          When's your exam?
+        </h1>
+        <input
+          type="date"
+          min={today}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-7 w-full max-w-xs text-center text-xl font-bold py-4 rounded-2xl bg-white border-2 border-ink/10 focus:border-violet-400 focus:outline-none shadow-[0_8px_24px_-12px_rgba(139,92,246,0.25)]"
+        />
+        {days !== null && (
+          <p className="mt-5 text-sm font-semibold text-ink/55">
+            <span className="text-3xl font-extrabold bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent tabular-nums">
+              {days}
+            </span>{" "}
+            days to go
+          </p>
+        )}
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onContinue} disabled={!valid}>
+          Continue
+        </PrimaryButton>
+        <SkipLink onSkip={onSkip} submitting={submitting} />
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+const TIME_TIERS: Array<{ minutes: number; emoji: string; label: string; sub: string }> = [
+  { minutes: 15, emoji: "☕", label: "Casual", sub: "15 minutes / day" },
+  { minutes: 45, emoji: "📚", label: "Regular", sub: "45 minutes / day" },
+  { minutes: 90, emoji: "⚡", label: "Serious", sub: "90 minutes / day" },
+  { minutes: 120, emoji: "🔥", label: "Intense", sub: "2+ hours / day" },
+];
+
+function TimeScreen({
+  value,
+  onPick,
+  onSkip,
+  submitting,
+}: {
+  value: number;
+  onPick: (m: number) => void;
+  onSkip: () => void;
+  submitting: SubmitMode | null;
+}) {
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col justify-center">
+        <div className="text-center">
+          <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+            How much time daily?
+          </h1>
+          <p className="mt-3 text-sm font-semibold text-ink/55">
+            Consistency &gt; intensity.
+          </p>
+        </div>
+        <div className="mt-8 space-y-2.5">
+          {TIME_TIERS.map((tier) => {
+            const active = value === tier.minutes;
+            return (
+              <button
+                key={tier.minutes}
+                onClick={() => onPick(tier.minutes)}
+                className={cn(
+                  "w-full text-left rounded-2xl p-4 flex items-center gap-4 transition border-2",
+                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:translate-y-0.5",
+                  active
+                    ? "bg-violet-50 border-violet-400"
+                    : "bg-white border-ink/8 hover:border-violet-200",
+                )}
+              >
+                <div className="text-3xl">{tier.emoji}</div>
+                <div className="flex-1">
+                  <div className="font-extrabold text-base text-ink">{tier.label}</div>
+                  <div className="text-xs font-semibold text-ink/55 mt-0.5">{tier.sub}</div>
+                </div>
+                {active && (
+                  <div className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+                    <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <Footer>
+        <SkipLink onSkip={onSkip} submitting={submitting} />
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+const SKILL_META: Array<{
+  key: SkillArea;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { key: "writing", label: "Writing", icon: PenLine },
+  { key: "speaking", label: "Speaking", icon: Mic },
+  { key: "reading", label: "Reading", icon: BookOpen },
+  { key: "listening", label: "Listening", icon: Headphones },
+  { key: "vocabulary", label: "Vocabulary", icon: Sparkles },
+  { key: "grammar", label: "Grammar", icon: GraduationCap },
+];
+
+function WeakScreen({
+  selected,
+  onToggle,
+  onContinue,
+}: {
+  selected: SkillArea[];
+  onToggle: (k: SkillArea) => void;
+  onContinue: () => void;
+}) {
+  const valid = selected.length >= 1;
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col justify-center">
+        <div className="text-center">
+          <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+            Which skills need work?
+          </h1>
+          <p className="mt-3 text-sm font-semibold text-ink/55">
+            Pick one or more. I'll focus your plan here.
+          </p>
+        </div>
+        <div className="mt-8 grid grid-cols-2 gap-3">
+          {SKILL_META.map(({ key, label, icon: Icon }) => {
+            const active = selected.includes(key);
+            return (
+              <button
+                key={key}
+                onClick={() => onToggle(key)}
+                className={cn(
+                  "rounded-2xl p-5 flex flex-col items-center gap-2.5 transition border-2",
+                  "shadow-[0_8px_24px_-16px_rgba(139,92,246,0.25)] active:translate-y-0.5",
+                  active
+                    ? "bg-violet-50 border-violet-400 text-violet-700"
+                    : "bg-white border-ink/8 text-ink/65 hover:border-violet-200",
+                )}
+              >
+                <Icon className="h-6 w-6" />
+                <span className="text-sm font-extrabold">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onContinue} disabled={!valid}>
+          Continue
+        </PrimaryButton>
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+function ReadyScreen({
+  name,
+  targetBand,
+  examDate,
+  submitting,
+  error,
+  onGenerate,
+  onSkip,
+}: {
+  name: string;
+  targetBand: number;
+  examDate: string;
+  submitting: SubmitMode | null;
+  error: string | null;
+  onGenerate: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <ScreenShell>
+      <MeshBackdrop />
+      <div className="relative flex-1 flex flex-col items-center justify-center text-center">
+        <FriendlyMascot size="lg" mood="celebrate" />
+        <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
+          You're all set, {name}!
+        </h1>
+        <p className="mt-4 text-base text-ink/60 font-medium leading-relaxed max-w-xs">
+          Targeting{" "}
+          <strong className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">
+            Band {targetBand.toFixed(1)}
+          </strong>
+          {examDate && (
+            <>
+              {" "}by <strong className="text-ink">{humanDate(examDate)}</strong>
+            </>
+          )}
+          .
+        </p>
+        {error && (
+          <div className="mt-4 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700 max-w-xs">
+            {error}
+          </div>
+        )}
+      </div>
+      <Footer>
+        <PrimaryButton onClick={onGenerate} disabled={submitting !== null}>
+          {submitting === "withPlan" ? "Building…" : "Generate my plan ✨"}
+        </PrimaryButton>
+        <SkipLink
+          onSkip={onSkip}
+          submitting={submitting}
+          label="Just save my profile for now"
+        />
+      </Footer>
+    </ScreenShell>
+  );
+}
+
+// ============================================================
+// Visual primitives
+// ============================================================
+
+function ScreenShell({ children }: { children: React.ReactNode }) {
+  return <div className="flex-1 flex flex-col w-full animate-[fadeIn_280ms_ease-out]">{children}</div>;
+}
+
+function Footer({ children }: { children: React.ReactNode }) {
+  return <div className="pt-4">{children}</div>;
+}
+
+/** CSS-only confetti rain — 24 colored pieces, randomized trajectories. */
+function ConfettiBurst() {
+  const pieces = useMemo(() => {
+    const colors = ["#0ea5e9", "#38bdf8", "#fbbf24", "#fb7185", "#a78bfa", "#34d399"];
+    return Array.from({ length: 24 }, (_, i) => ({
+      left: `${(i * 4.2 + 6) % 100}%`,
+      bg: colors[i % colors.length]!,
+      delay: (i % 8) * 0.12,
+      duration: 2 + ((i * 7) % 100) / 100,
+      size: 6 + (i % 4) * 2,
+      isCircle: i % 3 === 0,
+    }));
+  }, []);
+  return (
+    <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className="absolute top-[-10%] animate-[confettiFall_2.5s_linear_forwards]"
+          style={{
+            left: p.left,
+            width: p.size,
+            height: p.size,
+            background: p.bg,
+            borderRadius: p.isCircle ? "9999px" : "2px",
+            animationDelay: `${p.delay}s`,
+            animationDuration: `${p.duration}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Rotating ray halo, used behind celebration mascots. */
+function SunRays() {
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-0 -m-16 flex items-center justify-center pointer-events-none"
+    >
+      <svg
+        width="240"
+        height="240"
+        viewBox="0 0 240 240"
+        className="animate-[raysSpin_16s_linear_infinite]"
+      >
+        {Array.from({ length: 12 }).map((_, i) => {
+          const angle = (i * 30 * Math.PI) / 180;
+          const x1 = 120 + Math.cos(angle) * 60;
+          const y1 = 120 + Math.sin(angle) * 60;
+          const x2 = 120 + Math.cos(angle) * 110;
+          const y2 = 120 + Math.sin(angle) * 110;
+          return (
+            <line
+              key={i}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              stroke={i % 2 === 0 ? "#fbbf24" : "#0ea5e9"}
+              strokeWidth="3"
+              strokeLinecap="round"
+              opacity="0.55"
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/** Staggered floating sparkles orbiting a hero element. */
+function SparkleParticles() {
+  const sparkles = [
+    { className: "-top-3 -right-3 h-7 w-7", delay: 0, color: "text-amber-400" },
+    { className: "-bottom-2 -left-3 h-5 w-5", delay: 0.4, color: "text-amber-400" },
+    { className: "top-1/2 -right-7 h-4 w-4", delay: 0.8, color: "text-sky-400" },
+    { className: "-top-5 left-1/2 h-4 w-4", delay: 1.2, color: "text-amber-300" },
+    { className: "bottom-0 -right-5 h-3 w-3", delay: 1.6, color: "text-sky-300" },
+  ];
+  return (
+    <>
+      {sparkles.map((s, i) => (
+        <Sparkles
+          key={i}
+          aria-hidden
+          className={cn(
+            "absolute drop-shadow-md animate-[twinkle_2.4s_ease-in-out_infinite]",
+            s.className,
+            s.color,
+          )}
+          style={{ animationDelay: `${s.delay}s` }}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Inline keyframes shared across visual primitives. */
+function VisualKeyframes() {
+  return (
+    <style jsx global>{`
+      @keyframes confettiFall {
+        0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+        60% { opacity: 1; }
+        100% { transform: translateY(110vh) rotate(720deg); opacity: 0.2; }
+      }
+      @keyframes raysSpin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes twinkle {
+        0%, 100% { opacity: 0.4; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1.1); }
+      }
+      @keyframes bounceIn {
+        0% { opacity: 0; transform: scale(0.6); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes bob {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-7px); }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    `}</style>
+  );
+}
+
+/**
+ * Lumi — our friendly character mascot.
+ * A soft rounded blob with a face — gives the product a consistent personality
+ * across every screen. Mood/accessory variants let it adapt to context.
+ */
+function FriendlyMascot({
+  mood = "default",
+  size = "md",
+}: {
+  mood?: "default" | "wave" | "thinking" | "celebrate" | "writing";
+  size?: "sm" | "md" | "lg" | "xl";
+}) {
+  const dims = {
+    sm: { w: 96, h: 110 },
+    md: { w: 130, h: 150 },
+    lg: { w: 170, h: 195 },
+    xl: { w: 200, h: 230 },
+  } as const;
+  const { w, h } = dims[size];
+
+  return (
+    <div className="relative animate-[bob_3.6s_ease-in-out_infinite]" style={{ width: w, height: h }}>
+      <svg width={w} height={h} viewBox="0 0 200 230" fill="none" className="drop-shadow-[0_18px_24px_rgba(139,92,246,0.28)]">
+        <defs>
+          <linearGradient id="lumiBody" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stopColor="#e9d5ff" />
+            <stop offset="55%" stopColor="#c4b5fd" />
+            <stop offset="100%" stopColor="#8b5cf6" />
+          </linearGradient>
+          <radialGradient id="lumiCheek" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stopColor="#fb7185" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#fb7185" stopOpacity="0" />
+          </radialGradient>
+          <linearGradient id="lumiHighlight" x1="0.3" y1="0.1" x2="0.6" y2="0.6">
+            <stop offset="0%" stopColor="white" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {/* Soft ground shadow */}
+        <ellipse cx="100" cy="218" rx="52" ry="6" fill="#8b5cf6" opacity="0.16" />
+
+        {/* Body — squashed-rounded blob */}
+        <path
+          d="M40 110
+             C 40 50, 70 30, 100 30
+             C 130 30, 160 50, 160 110
+             C 160 175, 130 195, 100 195
+             C 70 195, 40 175, 40 110 Z"
+          fill="url(#lumiBody)"
+        />
+
+        {/* Glossy highlight */}
+        <path
+          d="M55 75
+             C 60 55, 80 45, 95 50
+             C 80 60, 70 75, 70 95 Z"
+          fill="url(#lumiHighlight)"
+        />
+
+        {/* Cheeks */}
+        <ellipse cx="68" cy="130" rx="10" ry="6" fill="url(#lumiCheek)" />
+        <ellipse cx="132" cy="130" rx="10" ry="6" fill="url(#lumiCheek)" />
+
+        {/* Eyes */}
+        {mood === "thinking" ? (
+          <>
+            <path d="M75 108 Q83 102 91 108" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
+            <path d="M109 108 Q117 102 125 108" stroke="white" strokeWidth="4" strokeLinecap="round" fill="none" />
+          </>
+        ) : (
+          <>
+            <ellipse cx="83" cy="108" rx="5" ry="7" fill="white" />
+            <ellipse cx="117" cy="108" rx="5" ry="7" fill="white" />
+            <circle cx="84" cy="110" r="2.5" fill="#1e1b4b" />
+            <circle cx="118" cy="110" r="2.5" fill="#1e1b4b" />
+          </>
+        )}
+
+        {/* Mouth */}
+        {mood === "celebrate" ? (
+          // Open happy mouth
+          <ellipse cx="100" cy="138" rx="11" ry="9" fill="#1e1b4b" />
+        ) : (
+          // Default smile
+          <path
+            d="M85 135 Q100 152 115 135"
+            stroke="white"
+            strokeWidth="4"
+            strokeLinecap="round"
+            fill="none"
+          />
+        )}
+
+        {/* Tiny waving arm for wave mood */}
+        {mood === "wave" && (
+          <g transform="translate(155 95)" className="origin-bottom-left">
+            <path
+              d="M0 0 Q 10 -15 20 -5"
+              stroke="#8b5cf6"
+              strokeWidth="9"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <circle cx="22" cy="-5" r="7" fill="#c4b5fd" />
+          </g>
+        )}
+
+        {/* Pencil for writing mood */}
+        {mood === "writing" && (
+          <g transform="translate(132 145) rotate(-30)">
+            <rect x="0" y="0" width="32" height="6" rx="2" fill="#fbbf24" />
+            <polygon points="32,0 38,3 32,6" fill="#1f2937" />
+          </g>
+        )}
+      </svg>
+
+      {/* Accent sparkles around */}
+      <Sparkles
+        aria-hidden
+        className="absolute -top-2 -right-1 h-5 w-5 text-amber-400 animate-[twinkle_2.6s_ease-in-out_infinite] drop-shadow"
+      />
+      <Sparkles
+        aria-hidden
+        className="absolute top-6 -left-3 h-3 w-3 text-violet-400 animate-[twinkle_2.6s_ease-in-out_infinite] drop-shadow"
+        style={{ animationDelay: "0.8s" }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Brand mascot — consistent across the flow:
+ *   - Default: solid sky-blue gradient (brand)
+ *   - accent=true: sky + amber for hero / celebration moments
+ *   - size lg: 128px for major celebrations
+ */
+function Mascot({
+  icon: Icon,
+  size = "md",
+  accent = false,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  size?: "md" | "lg";
+  accent?: boolean;
+}) {
+  const dim = size === "lg" ? "h-32 w-32" : "h-24 w-24";
+  const iconDim = size === "lg" ? "h-14 w-14" : "h-11 w-11";
+  const gradient = accent ? "from-sky-400 to-sky-600" : "from-sky-400 to-sky-600";
+  const ringTint = accent ? "bg-amber-300/30" : "bg-sky-300/30";
+  return (
+    <div className="relative animate-[bob_3.4s_ease-in-out_infinite]">
+      <div
+        aria-hidden
+        className={cn("absolute inset-0 rounded-full blur-2xl -z-10", ringTint)}
+      />
+      <div
+        className={cn(
+          "relative rounded-full bg-gradient-to-br flex items-center justify-center shadow-[0_10px_24px_-8px_rgba(14,165,233,0.5)]",
+          gradient,
+          dim,
+        )}
+      >
+        <Icon className={cn("text-white drop-shadow-sm", iconDim)} />
+        {accent && (
+          <div className="absolute inset-1.5 rounded-full ring-2 ring-white/30 pointer-events-none" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modern primary CTA: gradient pill with layered highlight + colored glow.
+ * Linear / Apple Intelligence vibe — feels premium and inviting.
+ */
+function PrimaryButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "group relative w-full rounded-2xl py-[1.1rem] px-6 text-[15px] font-bold text-white transition-all overflow-hidden tracking-tight",
+        disabled ? "opacity-40 cursor-not-allowed" : "hover:-translate-y-0.5 active:translate-y-0",
+      )}
+      style={
+        disabled
+          ? { background: "rgb(229 231 235)", color: "rgb(107 114 128)" }
+          : {
+              background:
+                "linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #ec4899 100%)",
+              boxShadow:
+                "0 14px 32px -10px rgba(139,92,246,0.55), 0 2px 4px -1px rgba(99,102,241,0.4), inset 0 1px 0 0 rgba(255,255,255,0.25), inset 0 -2px 0 0 rgba(0,0,0,0.12)",
+            }
+      }
+    >
+      {/* Soft inner sheen */}
+      {!disabled && (
+        <span
+          aria-hidden
+          className="absolute inset-x-3 top-1 h-3 rounded-full bg-white/30 blur-md pointer-events-none"
+        />
+      )}
+      <span className="relative inline-flex items-center justify-center gap-1.5">
+        {children}
+      </span>
+    </button>
+  );
+}
+
+function PrimaryLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="group relative block w-full text-center rounded-2xl py-[1.1rem] px-6 text-[15px] font-bold text-white tracking-tight transition-all overflow-hidden hover:-translate-y-0.5"
+      style={{
+        background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 45%, #ec4899 100%)",
+        boxShadow:
+          "0 14px 32px -10px rgba(139,92,246,0.55), 0 2px 4px -1px rgba(99,102,241,0.4), inset 0 1px 0 0 rgba(255,255,255,0.25), inset 0 -2px 0 0 rgba(0,0,0,0.12)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-x-3 top-1 h-3 rounded-full bg-white/30 blur-md pointer-events-none"
+      />
+      <span className="relative">{children}</span>
+    </Link>
+  );
+}
+
+/**
+ * Big tappable choice — pillowy card with soft colored shadow tinted by tone.
+ * Brand tone = sky (cool primary); accent tone = amber (warm secondary).
+ */
+function BigChoice({
+  onClick,
+  icon: Icon,
+  label,
+  sub,
+  tone,
+}: {
+  onClick: () => void;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  sub: string;
+  tone: "brand" | "accent";
+}) {
+  const styles =
+    tone === "brand"
+      ? "bg-white ring-sky-100 shadow-[0_18px_32px_-16px_rgba(14,165,233,0.35)] hover:ring-sky-300"
+      : "bg-white ring-amber-100 shadow-[0_18px_32px_-16px_rgba(245,158,11,0.35)] hover:ring-amber-300";
+  const iconBg =
+    tone === "brand"
+      ? "bg-gradient-to-br from-sky-400 to-sky-600 text-white shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]"
+      : "bg-gradient-to-br from-amber-300 to-amber-500 text-white shadow-[inset_0_-2px_0_rgba(0,0,0,0.12)]";
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full text-left rounded-3xl p-5 flex items-center gap-4 ring-1 transition-all",
+        "hover:-translate-y-0.5 active:translate-y-0.5",
+        styles,
+      )}
+    >
+      <div className={cn("h-12 w-12 rounded-2xl flex items-center justify-center shrink-0", iconBg)}>
+        <Icon className="h-6 w-6" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-extrabold text-base text-ink tracking-tight">{label}</div>
+        <div className="text-[12px] font-semibold text-ink/55 mt-0.5 leading-snug">{sub}</div>
+      </div>
+      <ArrowRight className="h-4 w-4 text-ink/30 shrink-0" />
+    </button>
+  );
+}
+
+function BulletCheck({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 text-sm font-semibold text-ink/75">
+      <div className="h-5 w-5 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shrink-0 shadow-sm">
+        <Check className="h-3 w-3 text-white" strokeWidth={3} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SkipLink({
+  onSkip,
+  submitting,
+  label = "Skip rest — take me to the app",
+}: {
+  onSkip: () => void;
+  submitting: SubmitMode | null;
+  label?: string;
+}) {
+  return (
+    <button
+      onClick={onSkip}
+      disabled={submitting !== null}
+      className="mt-3 w-full text-center text-xs font-semibold text-ink/40 hover:text-ink/70 py-2 disabled:opacity-40"
+    >
+      {submitting === "withoutPlan" ? (
+        <span className="inline-flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
+        </span>
+      ) : (
+        label
+      )}
+    </button>
+  );
+}
+
+// ============================================================
+// Plan-build loading screen
+// ============================================================
 
 function BuildingPlanScreen({ name }: { name: string }) {
   const [phraseIdx, setPhraseIdx] = useState(0);
@@ -245,46 +1684,34 @@ function BuildingPlanScreen({ name }: { name: string }) {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center px-6 bg-gradient-to-b from-violet-50 via-fuchsia-50 to-rose-50 relative overflow-hidden">
-      {/* Animated background blobs */}
+    <div className="min-h-[100dvh] flex items-center justify-center px-6 bg-white relative overflow-hidden">
       <div
         aria-hidden
-        className="absolute -top-20 -left-16 h-72 w-72 rounded-full bg-violet-300/40 blur-3xl animate-pulse"
+        className="absolute -top-24 -left-20 h-80 w-80 rounded-full bg-sky-200/40 blur-3xl"
       />
       <div
         aria-hidden
-        className="absolute -bottom-24 -right-20 h-80 w-80 rounded-full bg-rose-300/40 blur-3xl animate-pulse"
-        style={{ animationDelay: "1.4s" }}
-      />
-      <div
-        aria-hidden
-        className="absolute top-1/3 right-1/4 h-40 w-40 rounded-full bg-amber-200/40 blur-3xl animate-pulse"
-        style={{ animationDelay: "0.8s" }}
+        className="absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-sky-100/50 blur-3xl"
       />
 
       <div className="relative max-w-sm w-full text-center">
-        {/* Spinner with sparkle */}
         <div className="relative mx-auto h-24 w-24 mb-8">
-          <div className="absolute inset-0 rounded-full border-4 border-violet-200" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-violet-500 animate-spin" />
+          <div className="absolute inset-0 rounded-full border-4 border-sky-100" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-sky-500 animate-spin" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <Sparkles className="h-9 w-9 text-violet-500 animate-pulse" />
+            <Sparkles className="h-9 w-9 text-sky-500 animate-pulse" />
           </div>
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
           {name ? `Hang tight, ${name} —` : "Hang tight —"}
         </h1>
-        <p className="mt-1 text-lg font-semibold text-ink/80">
+        <p className="mt-1 text-lg font-semibold text-ink/70">
           we're tailoring your IELTS plan
         </p>
 
-        {/* Rotating phrase */}
-        <div className="mt-8 min-h-[3em] text-sm text-ink/65 leading-relaxed">
-          <span
-            key={phraseIdx}
-            className="inline-block animate-[fadeIn_400ms_ease-out]"
-          >
+        <div className="mt-8 min-h-[3em] text-sm text-ink/60 leading-relaxed">
+          <span key={phraseIdx} className="inline-block animate-[fadeIn_400ms_ease-out]">
             {PLAN_BUILDER_PHRASES[phraseIdx]}
           </span>
         </div>
@@ -293,312 +1720,30 @@ function BuildingPlanScreen({ name }: { name: string }) {
           AI generation usually takes 20–60 seconds. Please don't refresh.
         </p>
       </div>
-
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(4px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
     </div>
   );
 }
 
-function isStepValid(s: StepKey, d: Wizard): boolean {
-  switch (s) {
-    case "name":
-      return d.name.trim().length >= 2;
-    case "module":
-      return d.module !== "";
-    case "current":
-      return d.currentBand >= 0 && d.currentBand <= 9;
-    case "target":
-      return d.targetBand >= 4 && d.targetBand <= 9 && d.targetBand >= d.currentBand;
-    case "date":
-      return /^\d{4}-\d{2}-\d{2}$/.test(d.examDate) && d.examDate >= new Date().toISOString().slice(0, 10);
-    case "time":
-      return d.dailyMinutes >= 15 && d.dailyMinutes <= 240;
-    case "weak":
-      return d.weakAreas.length >= 1;
-  }
-}
+// ============================================================
+// Helpers
+// ============================================================
 
-function StepView({
-  step,
-  data,
-  setData,
-  today,
-}: {
-  step: StepKey;
-  data: Wizard;
-  setData: (u: (prev: Wizard) => Wizard) => void;
-  today: string;
-}) {
-  switch (step) {
-    case "name":
-      return (
-        <StepShell title="What should we call you?" subtitle="We use this for greetings and your dashboard avatar.">
-          <div className="flex items-center gap-2 rounded-2xl bg-white/70 border border-white/70 px-4 py-3">
-            <UserRound className="h-5 w-5 text-ink/50" />
-            <input
-              type="text"
-              autoFocus
-              maxLength={40}
-              value={data.name}
-              onChange={(e) => setData((d) => ({ ...d, name: e.target.value }))}
-              placeholder="e.g. Mareta"
-              className="flex-1 bg-transparent text-lg focus:outline-none placeholder:text-ink/30"
-            />
-          </div>
-          {data.name.trim().length > 0 && (
-            <p className="mt-3 text-xs text-ink/60">
-              Hi, <span className="font-semibold text-ink">{data.name.trim()}</span> 👋
-            </p>
-          )}
-        </StepShell>
-      );
-
-    case "module":
-      return (
-        <StepShell title="Academic or General Training?" subtitle="This affects the writing and reading tasks you'll see.">
-          <div className="grid grid-cols-1 gap-3">
-            <ChoiceCard
-              icon={<GraduationCap className="h-5 w-5" />}
-              label="Academic"
-              hint="For study abroad and university applications."
-              active={data.module === "academic"}
-              onClick={() => setData((d) => ({ ...d, module: "academic" }))}
-            />
-            <ChoiceCard
-              icon={<Briefcase className="h-5 w-5" />}
-              label="General Training"
-              hint="For migration, work visas, and vocational training."
-              active={data.module === "general-training"}
-              onClick={() => setData((d) => ({ ...d, module: "general-training" }))}
-            />
-          </div>
-        </StepShell>
-      );
-
-    case "current":
-      return (
-        <StepShell title="What's your current band?" subtitle="Just an estimate — we'll refine it as you practice.">
-          <BandPicker
-            value={data.currentBand}
-            onChange={(v) => setData((d) => ({ ...d, currentBand: v }))}
-            min={3}
-            max={9}
-          />
-        </StepShell>
-      );
-
-    case "target":
-      return (
-        <StepShell title="What band are you aiming for?" subtitle="Pick something realistic but ambitious.">
-          <BandPicker
-            value={data.targetBand}
-            onChange={(v) => setData((d) => ({ ...d, targetBand: v }))}
-            min={Math.max(4, data.currentBand)}
-            max={9}
-          />
-          {data.targetBand <= data.currentBand && (
-            <p className="mt-3 text-xs text-amber-700">Target should be higher than your current band.</p>
-          )}
-        </StepShell>
-      );
-
-    case "date":
-      return (
-        <StepShell title="When is your exam?" subtitle="We'll fit the schedule so you finish before exam day.">
-          <div className="flex items-center gap-2 rounded-2xl bg-white/70 border border-white/70 px-4 py-3">
-            <CalendarDays className="h-5 w-5 text-ink/50" />
-            <input
-              type="date"
-              min={today}
-              value={data.examDate}
-              onChange={(e) => setData((d) => ({ ...d, examDate: e.target.value }))}
-              className="flex-1 bg-transparent text-lg focus:outline-none"
-            />
-          </div>
-          {data.examDate && (
-            <p className="mt-3 text-xs text-ink/60">
-              {daysUntil(data.examDate)} days from today.
-            </p>
-          )}
-        </StepShell>
-      );
-
-    case "time":
-      return (
-        <StepShell title="How many minutes per day can you study?" subtitle="Consistency beats intensity.">
-          <MinutesPicker value={data.dailyMinutes} onChange={(v) => setData((d) => ({ ...d, dailyMinutes: v }))} />
-        </StepShell>
-      );
-
-    case "weak":
-      return (
-        <StepShell title="Which skills need the most work?" subtitle="Pick one or more.">
-          <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(SKILL_LABEL) as SkillArea[]).map((k) => {
-              const { label, icon: Icon } = SKILL_LABEL[k];
-              const active = data.weakAreas.includes(k);
-              return (
-                <button
-                  key={k}
-                  onClick={() =>
-                    setData((d) => ({
-                      ...d,
-                      weakAreas: active
-                        ? d.weakAreas.filter((x) => x !== k)
-                        : [...d.weakAreas, k],
-                    }))
-                  }
-                  className={cn(
-                    "rounded-2xl border p-4 flex flex-col items-start gap-2 text-left transition",
-                    active
-                      ? "border-violet-400 bg-violet-100/70"
-                      : "border-white/60 bg-white/55 hover:bg-white/80",
-                  )}
-                >
-                  <Icon className="h-5 w-5 text-ink/70" />
-                  <span className="text-sm font-semibold">{label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </StepShell>
-      );
-  }
-}
-
-function StepShell({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <h1 className="text-2xl sm:text-3xl font-bold tracking-tight leading-tight">{title}</h1>
-      {subtitle && <p className="mt-2 text-sm text-ink/60">{subtitle}</p>}
-      <div className="mt-6">{children}</div>
-    </div>
-  );
-}
-
-function ChoiceCard({
-  icon,
-  label,
-  hint,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  hint: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "w-full text-left rounded-2xl border p-4 transition flex items-start gap-3",
-        active
-          ? "border-violet-400 bg-violet-100/70"
-          : "border-white/60 bg-white/55 hover:bg-white/80",
-      )}
-    >
-      <div className="mt-0.5 h-9 w-9 rounded-xl bg-white/70 flex items-center justify-center">
-        {icon}
-      </div>
-      <div>
-        <div className="font-semibold">{label}</div>
-        <div className="text-xs text-ink/60 mt-0.5">{hint}</div>
-      </div>
-    </button>
-  );
-}
-
-function BandPicker({
-  value,
-  onChange,
-  min,
-  max,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  min: number;
-  max: number;
-}) {
-  const bands: number[] = [];
-  for (let b = min; b <= max; b += 0.5) bands.push(b);
-  return (
-    <div className="flex flex-col items-center">
-      <div className="flex items-baseline gap-1 mb-3">
-        <Target className="h-5 w-5 text-violet-500 self-center" />
-        <span className="text-5xl font-bold tracking-tight">{value.toFixed(1)}</span>
-      </div>
-      <div className="grid grid-cols-5 gap-1.5 w-full">
-        {bands.map((b) => (
-          <button
-            key={b}
-            onClick={() => onChange(b)}
-            className={cn(
-              "rounded-xl py-2 text-sm font-medium transition",
-              value === b
-                ? "bg-ink text-white"
-                : "bg-white/60 border border-white/60 text-ink/70 hover:bg-white",
-            )}
-          >
-            {b.toFixed(1)}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MinutesPicker({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const choices = [15, 30, 45, 60, 90, 120];
-  return (
-    <div>
-      <div className="flex items-baseline gap-1 mb-4 justify-center">
-        <Clock className="h-5 w-5 text-violet-500 self-center" />
-        <span className="text-5xl font-bold tracking-tight">{value}</span>
-        <span className="text-ink/50 ml-1">min</span>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        {choices.map((m) => (
-          <button
-            key={m}
-            onClick={() => onChange(m)}
-            className={cn(
-              "rounded-xl py-2.5 text-sm font-medium transition",
-              value === m
-                ? "bg-ink text-white"
-                : "bg-white/60 border border-white/60 text-ink/70 hover:bg-white",
-            )}
-          >
-            {m}m
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+function bandLabel(band: number): string {
+  if (band >= 8.5) return "Expert";
+  if (band >= 7.5) return "Very good";
+  if (band >= 6.5) return "Good";
+  if (band >= 5.5) return "Competent";
+  if (band >= 4.5) return "Modest";
+  return "Limited";
 }
 
 function daysUntil(yyyyMmDd: string): number {
   const target = new Date(yyyyMmDd + "T00:00:00").getTime();
   const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00").getTime();
   return Math.max(0, Math.round((target - today) / 86_400_000));
+}
+
+function humanDate(yyyyMmDd: string): string {
+  const d = new Date(yyyyMmDd + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }

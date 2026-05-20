@@ -5,13 +5,14 @@ import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Clock,
+  Compass,
   Home as HomeIcon,
   PenLine,
   User as UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type BottomNavKey = "home" | "practice" | "plan" | "history" | "profile";
+export type BottomNavKey = "home" | "learn" | "practice" | "plan" | "history" | "profile";
 
 const ITEMS: Array<{
   key: BottomNavKey;
@@ -26,6 +27,13 @@ const ITEMS: Array<{
     label: "Home",
     icon: <HomeIcon className="h-5 w-5" />,
     match: (p) => p === "/",
+  },
+  {
+    key: "learn",
+    href: "/getting-started",
+    label: "Learn",
+    icon: <Compass className="h-5 w-5" />,
+    match: (p) => p.startsWith("/getting-started"),
   },
   {
     key: "practice",
@@ -73,7 +81,7 @@ export function BottomNav({ active }: { active?: BottomNavKey }) {
       className="fixed bottom-0 inset-x-0 z-40 pb-[env(safe-area-inset-bottom)]"
       aria-label="Primary"
     >
-      <div className="mx-auto max-w-xs sm:max-w-sm mb-4 bg-ink rounded-full px-2 py-2 flex items-center justify-around shadow-pop">
+      <div className="mx-auto max-w-sm sm:max-w-md mb-4 bg-ink rounded-full px-2 py-2 flex items-center justify-around shadow-pop">
         {ITEMS.map((it) => {
           const isActive = it.key === current;
           return (
