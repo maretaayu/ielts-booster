@@ -664,20 +664,37 @@ function findFallbackMcq(
  */
 function deriveFinalCefr(history: McqAnswer[]): CefrLevel {
   const byLevel = new Map<CefrLevel, { correct: number; asked: number }>();
+  let totalCorrect = 0;
   for (const h of history) {
     const cur = byLevel.get(h.q.cefr) ?? { correct: 0, asked: 0 };
     cur.asked += 1;
-    if (h.correct) cur.correct += 1;
+    if (h.correct) {
+      cur.correct += 1;
+      totalCorrect += 1;
+    }
     byLevel.set(h.q.cefr, cur);
   }
-  let best: CefrLevel = "A2";
+
+  if (history.length === 0) return "B1";
+  const overall = totalCorrect / history.length;
+  const cap: CefrLevel =
+    overall >= 0.85 ? "C2" :
+    overall >= 0.7 ? "C1" :
+    overall >= 0.5 ? "B2" :
+    overall >= 0.35 ? "B1" :
+    "A2";
+
+  let best: CefrLevel = overall >= 0.5 ? "B2" : overall >= 0.35 ? "B1" : "A2";
   for (const lvl of CEFR_LADDER) {
     const stats = byLevel.get(lvl);
-    if (stats && stats.asked >= 2 && stats.correct / stats.asked >= 0.5) {
+    if (stats && stats.asked >= 2 && stats.correct / stats.asked >= 0.67) {
       best = lvl;
     }
   }
-  return best;
+
+  const bestIndex = CEFR_LADDER.indexOf(best);
+  const capIndex = CEFR_LADDER.indexOf(cap);
+  return CEFR_LADDER[Math.min(bestIndex, capIndex)]!;
 }
 
 function deriveBreakdown(

@@ -61,7 +61,17 @@ function useLoad<T>(fn: () => Promise<T> | null): LoadState<T> {
 
 export default function Home() {
   const [hydrated, setHydrated] = useState(false);
+  const [showPlanReady, setShowPlanReady] = useState(false);
   useEffect(() => setHydrated(true), []);
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("welcome") !== "plan-ready") return;
+    setShowPlanReady(true);
+    url.searchParams.delete("welcome");
+    const next = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(null, "", next);
+  }, [hydrated]);
 
   const onboarded = typeof window !== "undefined" ? isOnboarded() : true;
   const userId = typeof window !== "undefined" ? getOrCreateUserId() : "anon";
@@ -99,6 +109,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto max-w-md sm:max-w-lg px-4 pt-5 pb-32 sm:pb-28">
+      {showPlanReady ? <PlanReadyOverlay onClose={() => setShowPlanReady(false)} /> : null}
       <TopBar
         name={profile.data?.name}
         targetBand={targetBand}
@@ -120,6 +131,84 @@ export default function Home() {
         ready={attempts.status !== "loading" && speaking.status !== "loading"}
       />
       <BottomNav active="home" />
+    </div>
+  );
+}
+
+function PlanReadyOverlay({ onClose }: { onClose: () => void }) {
+  const confetti = [
+    { left: 10, delay: 0, duration: 3.8, color: "#f0abfc", size: 9 },
+    { left: 18, delay: 0.4, duration: 4.5, color: "#fde68a", size: 7 },
+    { left: 27, delay: 0.9, duration: 4.1, color: "#c4b5fd", size: 8 },
+    { left: 36, delay: 0.2, duration: 4.8, color: "#ffffff", size: 6 },
+    { left: 48, delay: 0.7, duration: 3.9, color: "#f0abfc", size: 10 },
+    { left: 58, delay: 1.1, duration: 4.3, color: "#fde68a", size: 7 },
+    { left: 69, delay: 0.5, duration: 4.6, color: "#c4b5fd", size: 9 },
+    { left: 81, delay: 1.3, duration: 4.0, color: "#ffffff", size: 6 },
+    { left: 91, delay: 0.8, duration: 4.9, color: "#f0abfc", size: 8 },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#050008] px-5 overflow-hidden">
+      <div
+        aria-hidden
+        className="absolute left-1/2 top-[-18%] h-[58vw] w-[78vw] -translate-x-1/2 rounded-full bg-[#7e22ce] opacity-75 blur-[95px]"
+      />
+      <div
+        aria-hidden
+        className="absolute bottom-[-18%] left-[-10%] h-[70vw] w-[70vw] rounded-full bg-[#4c1d95] opacity-65 blur-[120px]"
+      />
+      <div
+        aria-hidden
+        className="absolute right-[-12%] top-[18%] h-[52vw] w-[52vw] rounded-full bg-[#c026d3] opacity-45 blur-[105px]"
+      />
+      {confetti.map((piece, index) => (
+        <span
+          key={index}
+          aria-hidden
+          className="plan-confetti absolute top-[-24px] rounded-[3px]"
+          style={{
+            left: `${piece.left}%`,
+            height: piece.size,
+            width: piece.size * 0.68,
+            backgroundColor: piece.color,
+            animationDelay: `${piece.delay}s`,
+            animationDuration: `${piece.duration}s`,
+          }}
+        />
+      ))}
+
+      <div className="relative w-full max-w-sm text-center text-white">
+        <div className="relative mx-auto h-[230px] w-[280px]">
+          <div className="absolute left-1/2 top-[70px] h-[120px] w-[160px] -translate-x-1/2 rotate-[-8deg] rounded-[28px] bg-white shadow-[0_28px_55px_rgba(0,0,0,0.36)]" />
+          <div className="absolute left-1/2 top-[52px] h-[150px] w-[190px] -translate-x-1/2 rotate-[8deg] rounded-[32px] border border-white/10 bg-gradient-to-br from-fuchsia-400/24 to-indigo-500/10" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="relative animate-[bob_3.4s_ease-in-out_infinite]">
+              <div className="absolute inset-0 rounded-full bg-fuchsia-300/30 blur-2xl" />
+              <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-violet-200 to-violet-500 shadow-[0_18px_40px_rgba(124,58,237,0.35)]">
+                <Sparkles className="h-14 w-14 text-white drop-shadow" />
+              </div>
+            </div>
+          </div>
+          <Star className="absolute right-14 top-8 h-6 w-6 fill-amber-300 text-amber-300 drop-shadow" />
+          <Sparkles className="absolute left-12 top-20 h-5 w-5 text-fuchsia-200" />
+          <Trophy className="absolute bottom-7 right-12 h-8 w-8 text-amber-200" />
+        </div>
+
+        <h1 className="mt-2 text-[2.35rem] font-black leading-[1.02] tracking-tight">
+          Lesson plan ready.
+        </h1>
+        <p className="mx-auto mt-4 max-w-[280px] text-[15px] font-semibold leading-relaxed text-white/70">
+          Your first lesson path is waiting on the homepage.
+        </p>
+
+        <button
+          onClick={onClose}
+          className="mt-10 w-full rounded-full bg-white px-6 py-[1.15rem] text-[15px] font-extrabold tracking-tight text-[#11051c] shadow-lg shadow-white/10 transition hover:-translate-y-0.5 hover:bg-slate-50 active:translate-y-0"
+        >
+          Explore my plan
+        </button>
+      </div>
     </div>
   );
 }

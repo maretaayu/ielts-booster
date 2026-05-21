@@ -18,6 +18,35 @@ main {
   z-index: 1;
 }
 
+@keyframes bob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes planConfettiFall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -12vh, 0) rotate(0deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.15;
+    transform: translate3d(32px, 112vh, 0) rotate(720deg);
+  }
+}
+
+.plan-confetti {
+  animation-name: planConfettiFall;
+  animation-timing-function: cubic-bezier(0.18, 0.84, 0.28, 1);
+  animation-iteration-count: infinite;
+}
+
 @layer components {
   .glass {
     @apply bg-white border border-black/[0.06] shadow-soft;

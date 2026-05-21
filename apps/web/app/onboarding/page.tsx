@@ -58,7 +58,7 @@ type Stage =
 
 const DEFAULTS: Wizard = {
   name: "",
-  module: "",
+  module: "academic",
   currentBand: 0,
   targetBand: 7,
   examDate: "",
@@ -118,12 +118,11 @@ function pickPhrase(arr: string[], seed: string): string {
 const STAGE_ORDER: Stage[] = [
   "welcome",
   "name",
-  "module",
   "placement",
   "placement-celebration",
-  "plan-offer",
   "target",
   "date",
+  "plan-offer",
   "time",
   "weak",
   "ready",
@@ -133,9 +132,49 @@ function stageIdx(s: Stage): number {
   return STAGE_ORDER.indexOf(s);
 }
 
+function currentVisibleStep(stage: Stage): number {
+  switch (stage) {
+    case "welcome":
+      return 1;
+    case "name":
+      return 2;
+    case "placement":
+    case "placement-celebration":
+      return 3;
+    case "target":
+      return 4;
+    case "date":
+      return 5;
+    case "plan-offer":
+    case "time":
+    case "weak":
+    case "ready":
+      return 6;
+    default:
+      return 1;
+  }
+}
+
+function stageForVisibleStep(step: number): Stage {
+  switch (step) {
+    case 1:
+      return "welcome";
+    case 2:
+      return "name";
+    case 3:
+      return "placement";
+    case 4:
+      return "target";
+    case 5:
+      return "date";
+    default:
+      return "plan-offer";
+  }
+}
+
 export default function OnboardingPage() {
   return (
-    <Suspense fallback={<div className="min-h-[100dvh] bg-white" />}>
+    <Suspense fallback={<div className="min-h-[100dvh] bg-[#050008]" />}>
       <Onboarding />
     </Suspense>
   );
@@ -145,6 +184,7 @@ function Onboarding() {
   const router = useRouter();
   const [data, setData] = useState<Wizard>(DEFAULTS);
   const [stage, setStage] = useState<Stage>("welcome");
+  const [autoAdvancePlacement, setAutoAdvancePlacement] = useState(false);
   const [submitting, setSubmitting] = useState<SubmitMode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -177,9 +217,17 @@ function Onboarding() {
 
     const savedStage = localStorage.getItem(STAGE_KEY) as Stage | null;
     if (justReturnedFromPlacement) {
+      setAutoAdvancePlacement(true);
       setStage("placement-celebration");
     } else {
-      setStage(savedStage ?? "welcome");
+      let nextStage = savedStage === "module" ? "placement" : savedStage ?? "welcome";
+      if ((nextStage === "plan-offer" || nextStage === "time" || nextStage === "weak" || nextStage === "ready") && !next.examDate) {
+        nextStage = "target";
+      }
+      if (nextStage === "time" || nextStage === "weak" || nextStage === "ready") {
+        nextStage = "plan-offer";
+      }
+      setStage(nextStage);
     }
     setHydrated(true);
   }, []);
@@ -194,10 +242,13 @@ function Onboarding() {
   }, [stage, hydrated]);
 
   useEffect(() => {
-    if (stage !== "placement-celebration") return;
-    const id = setTimeout(() => setStage("plan-offer"), 2400);
+    if (stage !== "placement-celebration" || !autoAdvancePlacement) return;
+    const id = setTimeout(() => {
+      setAutoAdvancePlacement(false);
+      setStage("target");
+    }, 2400);
     return () => clearTimeout(id);
-  }, [stage]);
+  }, [stage, autoAdvancePlacement]);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -206,10 +257,30 @@ function Onboarding() {
     if (i <= 0) return;
     const prev = STAGE_ORDER[i - 1];
     if (prev === "placement-celebration" && i - 2 >= 0) {
-      setStage(STAGE_ORDER[i - 2]!);
+      setAutoAdvancePlacement(false);
+      setStage(data.placement ? "placement-celebration" : STAGE_ORDER[i - 2]!);
     } else if (prev) {
+      setAutoAdvancePlacement(false);
       setStage(prev);
     }
+  }
+
+  function pickStep(step: number) {
+    setAutoAdvancePlacement(false);
+    if (step === 3 && data.placement) {
+      setStage("placement-celebration");
+      return;
+    }
+    setStage(stageForVisibleStep(step));
+  }
+
+  function retakePlacement() {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(PLACEMENT_PENDING_KEY);
+    }
+    setAutoAdvancePlacement(false);
+    setData((d) => ({ ...d, placement: null, placementSkipped: false, currentBand: 0 }));
+    router.push("/placement?from=onboarding&retake=1");
   }
 
   async function submit(mode: SubmitMode) {
@@ -226,7 +297,7 @@ function Onboarding() {
       await api.saveProfile({
         userId,
         name: data.name.trim(),
-        module: data.module as IeltsModule,
+        module: (data.module || "academic") as IeltsModule,
         currentBand: data.currentBand,
         targetBand: data.targetBand,
         examDate,
@@ -265,7 +336,7 @@ function Onboarding() {
         dailyMinutes: data.dailyMinutes,
       });
       markOnboarded(plan.id);
-      router.push(`/plan/${plan.id}?welcome=1`);
+      router.push("/?welcome=plan-ready");
     } catch (e) {
       setError((e as Error).message);
       setSubmitting(null);
@@ -278,7 +349,6 @@ function Onboarding() {
 
   const visibleStages: Stage[] = [
     "name",
-    "module",
     "placement",
     "plan-offer",
     "target",
@@ -294,15 +364,21 @@ function Onboarding() {
       ? (visibleStages.indexOf("plan-offer") / visibleStages.length) * 100
       : Math.max(0, (visibleStages.indexOf(stage) / visibleStages.length) * 100);
 
-  const showHeader = stage !== "welcome" && stage !== "placement-celebration";
+  const showHeader = stage !== "placement-celebration" || !autoAdvancePlacement;
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-white relative overflow-hidden">
+    <div className="onboarding-dark min-h-[100dvh] flex flex-col bg-[#050008] relative overflow-hidden">
       <DynamicBackground stage={stage} />
 
       <VisualKeyframes />
       {showHeader && (
-        <TopBar progress={progress} onBack={back} canBack={stageIdx(stage) > stageIdx("name")} />
+        <TopBar
+          currentStep={currentVisibleStep(stage)}
+          totalSteps={6}
+          onBack={back}
+          onStepPick={pickStep}
+          canBack={stageIdx(stage) > stageIdx("name")}
+        />
       )}
 
       <main className="flex-1 flex flex-col px-5 pt-2 pb-6 relative z-10">
@@ -326,6 +402,8 @@ function Onboarding() {
                 error={error}
                 onSubmitWithPlan={() => submit("withPlan")}
                 onSubmitWithoutPlan={() => submit("withoutPlan")}
+                autoAdvancePlacement={autoAdvancePlacement}
+                onRetakePlacement={retakePlacement}
               />
             </motion.div>
           </AnimatePresence>
@@ -340,33 +418,77 @@ function Onboarding() {
 // ============================================================
 
 function TopBar({
-  progress,
+  currentStep,
+  totalSteps,
   onBack,
+  onStepPick,
   canBack,
 }: {
-  progress: number;
+  currentStep: number;
+  totalSteps: number;
   onBack: () => void;
+  onStepPick: (step: number) => void;
   canBack: boolean;
 }) {
   return (
     <header className="px-5 pt-5 sm:pt-7 relative z-10">
-      <div className="max-w-md mx-auto flex items-center gap-3">
+      <div className="max-w-md mx-auto flex items-center gap-4">
         <button
           onClick={onBack}
           disabled={!canBack}
           aria-label="Back"
-          className="h-9 w-9 rounded-full flex items-center justify-center text-ink/40 hover:text-ink/70 hover:bg-ink/5 disabled:opacity-30 disabled:hover:bg-transparent transition"
+          className="h-9 w-9 rounded-full flex items-center justify-center text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
         >
           <X className="h-5 w-5" />
         </button>
-        <div className="flex-1 h-2.5 rounded-full bg-ink/8 overflow-hidden">
-          <div
-            className="h-full bg-sky-500 rounded-full transition-all duration-500"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        <StepRail currentStep={currentStep} totalSteps={totalSteps} onStepPick={onStepPick} />
       </div>
     </header>
+  );
+}
+
+function StepRail({
+  currentStep,
+  totalSteps,
+  onStepPick,
+}: {
+  currentStep: number;
+  totalSteps: number;
+  onStepPick: (step: number) => void;
+}) {
+  return (
+    <div className="relative flex-1 py-3">
+      <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-[#331149]" />
+      <div
+        className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-gradient-to-r from-fuchsia-300 to-violet-300 transition-all duration-500"
+        style={{ width: `${((currentStep - 1) / Math.max(1, totalSteps - 1)) * 100}%` }}
+      />
+      <div className="relative flex items-center justify-between">
+        {Array.from({ length: totalSteps }).map((_, i) => {
+          const n = i + 1;
+          const active = n <= currentStep;
+          const current = n === currentStep;
+          return (
+            <button
+              key={n}
+              type="button"
+              onClick={() => active && onStepPick(n)}
+              disabled={!active}
+              aria-label={`Go to onboarding step ${n}`}
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black transition-all",
+                active ? "bg-fuchsia-200 text-[#2b063d]" : "bg-[#1d0b28] text-white/45",
+                current && "scale-110 ring-2 ring-fuchsia-200/50",
+                active && "cursor-pointer hover:scale-110",
+                !active && "cursor-not-allowed",
+              )}
+            >
+              {n === totalSteps ? <Check className="h-3 w-3" strokeWidth={4} /> : n}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -384,6 +506,8 @@ function ScreenRouter({
   error,
   onSubmitWithPlan,
   onSubmitWithoutPlan,
+  autoAdvancePlacement,
+  onRetakePlacement,
 }: {
   stage: Stage;
   setStage: (s: Stage) => void;
@@ -394,6 +518,8 @@ function ScreenRouter({
   error: string | null;
   onSubmitWithPlan: () => void;
   onSubmitWithoutPlan: () => void;
+  autoAdvancePlacement: boolean;
+  onRetakePlacement: () => void;
 }) {
   switch (stage) {
     case "welcome":
@@ -403,7 +529,10 @@ function ScreenRouter({
         <NameScreen
           value={data.name}
           onChange={(v) => setData((d) => ({ ...d, name: v }))}
-          onContinue={() => setStage("module")}
+          onContinue={() => {
+            setData((d) => ({ ...d, module: "academic" }));
+            setStage("placement");
+          }}
         />
       );
     case "module":
@@ -426,7 +555,7 @@ function ScreenRouter({
               placementSkipped: true,
               currentBand: 0,
             }));
-            setStage("plan-offer");
+            setStage("target");
           }}
         />
       );
@@ -435,9 +564,12 @@ function ScreenRouter({
         <PlacementCelebrationScreen
           placement={data.placement}
           name={data.name.trim()}
+          reviewMode={!autoAdvancePlacement}
+          onContinue={() => setStage("target")}
+          onRetake={onRetakePlacement}
         />
       ) : (
-        <WelcomeScreen onStart={() => setStage("plan-offer")} />
+        <WelcomeScreen onStart={() => setStage("target")} />
       );
     case "plan-offer":
       return (
@@ -445,7 +577,7 @@ function ScreenRouter({
           placement={data.placement}
           name={data.name.trim()}
           submitting={submitting}
-          onBuild={() => setStage("target")}
+          onBuild={onSubmitWithPlan}
           onSkip={onSubmitWithoutPlan}
         />
       );
@@ -453,11 +585,10 @@ function ScreenRouter({
       return (
         <TargetScreen
           value={data.targetBand}
-          minBand={Math.max(4, data.currentBand > 0 ? data.currentBand : 4)}
+          minBand={4}
           onChange={(v) => setData((d) => ({ ...d, targetBand: v }))}
           onContinue={() => setStage("date")}
-          onSkip={onSubmitWithoutPlan}
-          submitting={submitting}
+          onSkip={() => setStage("date")}
         />
       );
     case "date":
@@ -466,9 +597,8 @@ function ScreenRouter({
           value={data.examDate}
           today={today}
           onChange={(v) => setData((d) => ({ ...d, examDate: v }))}
-          onContinue={() => setStage("time")}
-          onSkip={onSubmitWithoutPlan}
-          submitting={submitting}
+          onContinue={() => setStage("plan-offer")}
+          onSkip={() => setStage("plan-offer")}
         />
       );
     case "time":
@@ -519,26 +649,35 @@ function ScreenRouter({
 
 function WelcomeScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex-1 flex flex-col w-full h-full relative">
-      <div className="relative flex-1 flex flex-col items-center justify-center px-6 mt-10">
-        <FriendlyMascot mood="wave" size="xl" />
-        <motion.div 
+    <div className="relative flex h-full w-full flex-1 flex-col px-1 pt-1">
+      <div className="relative flex flex-1 flex-col items-center justify-center pb-8">
+        <div className="relative h-[310px] w-full">
+          <div className="absolute left-1/2 top-[56px] h-[190px] w-[210px] -translate-x-1/2 rotate-[-8deg] rounded-[28px] bg-white shadow-[0_28px_55px_rgba(0,0,0,0.36)]" />
+          <div className="absolute left-1/2 top-[40px] h-[210px] w-[238px] -translate-x-1/2 rotate-[8deg] rounded-[32px] border border-white/10 bg-gradient-to-br from-fuchsia-400/24 to-indigo-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" />
+          <div className="absolute left-1/2 top-[12px] -translate-x-1/2">
+            <FriendlyMascot mood="wave" size="xxl" />
+          </div>
+          <DecorStar className="left-[46px] top-[90px] text-white" delay={0.1} size={18} />
+          <DecorStar className="right-[62px] top-[32px] text-amber-200" delay={0.8} size={14} />
+        </div>
+
+        <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.5 }}
-          className="mt-12 text-center"
+          transition={{ delay: 0.18, duration: 0.45 }}
+          className="-mt-2 text-center"
         >
-          <h1 className="text-[2.5rem] sm:text-[3rem] font-extrabold tracking-tight leading-[1] text-white">
-            Hi, I'm Lumi.
+          <h1 className="text-[2.35rem] font-black tracking-tight leading-[1.02] text-white">
+            Meet Lumi.
           </h1>
-          <p className="mt-5 text-[17px] text-white/75 font-medium leading-relaxed max-w-[300px] mx-auto">
-            Your AI study buddy. I'll get you to your dream IELTS band — one step at a time.
+          <p className="mx-auto mt-4 max-w-[270px] text-[15px] font-semibold leading-relaxed text-white/70">
+            Turn IELTS prep into a band quest.
           </p>
         </motion.div>
       </div>
 
-      <div className="relative px-5 pb-7 pt-2 mt-auto">
-        <PrimaryButton variant="light" onClick={onStart}>Nice to meet you →</PrimaryButton>
+      <div className="relative mt-auto px-1 pb-6">
+        <PrimaryButton variant="light" onClick={onStart}>LET'S GO</PrimaryButton>
       </div>
     </div>
   );
@@ -546,25 +685,25 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
 
 function DynamicBackground({ stage }: { stage: string }) {
   const orbs: Record<string, { color1: string; color2: string; color3: string }> = {
-    welcome: { color1: "#6b21a8", color2: "#4c1d95", color3: "#581c87" }, // Cohesive, premium deep dark purples
-    name: { color1: "#c4b5fd", color2: "#a855f7", color3: "#d8b4fe" }, // Lumi purple
-    module: { color1: "#fde047", color2: "#f97316", color3: "#fed7aa" }, 
-    placement: { color1: "#86efac", color2: "#14b8a6", color3: "#a7f3d0" }, 
-    "placement-celebration": { color1: "#fde047", color2: "#f59e0b", color3: "#fef08a" }, 
-    "plan-offer": { color1: "#c4b5fd", color2: "#8b5cf6", color3: "#ddd6fe" }, 
-    target: { color1: "#fbcfe8", color2: "#ec4899", color3: "#fce7f3" }, 
-    date: { color1: "#bbf7d0", color2: "#22c55e", color3: "#dcfce7" }, 
-    time: { color1: "#bfdbfe", color2: "#3b82f6", color3: "#dbeafe" }, 
-    weak: { color1: "#fef08a", color2: "#eab308", color3: "#fef9c3" }, 
-    ready: { color1: "#e9d5ff", color2: "#a855f7", color3: "#f3e8ff" }, 
+    welcome: { color1: "#7e22ce", color2: "#3b0764", color3: "#a21caf" },
+    name: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    module: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    placement: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    "placement-celebration": { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    "plan-offer": { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    target: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    date: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    time: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    weak: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
+    ready: { color1: "#7e22ce", color2: "#4c1d95", color3: "#c026d3" },
   };
 
   const current = orbs[stage] || orbs.welcome;
-  const isDark = stage === "welcome";
+  const isDark = true;
 
   return (
     <motion.div 
-      animate={{ backgroundColor: isDark ? "#05010f" : "#ffffff" }}
+      animate={{ backgroundColor: isDark ? "#050008" : "#faf7ff" }}
       transition={{ duration: 1.2, ease: "easeInOut" }}
       aria-hidden 
       className="absolute inset-0 pointer-events-none overflow-hidden -z-0"
@@ -572,17 +711,17 @@ function DynamicBackground({ stage }: { stage: string }) {
       <motion.div
         animate={{ backgroundColor: current.color1, x: [0, 40, -20, 0], y: [0, -40, 20, 0] }}
         transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 20, repeat: Infinity, ease: "easeInOut" }, y: { duration: 25, repeat: Infinity, ease: "easeInOut" } }}
-        className="absolute top-[-10%] right-[-10%] w-[60vw] h-[60vw] rounded-full blur-[100px] opacity-80"
+        className="absolute top-[-18%] left-1/2 h-[58vw] w-[78vw] -translate-x-1/2 rounded-full blur-[95px] opacity-75"
       />
       <motion.div
         animate={{ backgroundColor: current.color2, x: [0, -30, 30, 0], y: [0, 30, -30, 0] }}
         transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 25, repeat: Infinity, ease: "easeInOut" }, y: { duration: 20, repeat: Infinity, ease: "easeInOut" } }}
-        className="absolute bottom-[-10%] left-[-10%] w-[70vw] h-[70vw] rounded-full blur-[120px] opacity-80"
+        className="absolute bottom-[-18%] left-[-10%] h-[70vw] w-[70vw] rounded-full blur-[120px] opacity-65"
       />
       <motion.div
         animate={{ backgroundColor: current.color3, x: [0, 50, -50, 0], y: [0, 50, -50, 0] }}
         transition={{ backgroundColor: { duration: 1.2, ease: "easeInOut" }, x: { duration: 30, repeat: Infinity, ease: "easeInOut" }, y: { duration: 30, repeat: Infinity, ease: "easeInOut" } }}
-        className="absolute top-[30%] left-[20%] w-[50vw] h-[50vw] rounded-full blur-[90px] opacity-60"
+        className="absolute right-[-12%] top-[18%] h-[52vw] w-[52vw] rounded-full blur-[105px] opacity-45"
       />
       
       {/* Subtle grid texture to prevent flatness */}
@@ -596,9 +735,9 @@ function DynamicBackground({ stage }: { stage: string }) {
 
       {/* Frosted glass overlay that adapts to dark/light mode */}
       <motion.div 
-        animate={{ backgroundColor: isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(255, 255, 255, 0.4)" }}
+        animate={{ backgroundColor: isDark ? "rgba(5, 0, 8, 0.28)" : "rgba(255, 255, 255, 0.52)" }}
         transition={{ duration: 1.2, ease: "easeInOut" }}
-        className="absolute inset-0 backdrop-blur-[60px]" 
+        className="absolute inset-0 backdrop-blur-[54px]" 
       />
     </motion.div>
   );
@@ -692,7 +831,7 @@ function BandCard({
       bg: "bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500",
       ring: "ring-amber-200/70",
       numColor: "text-white drop-shadow-sm",
-      labelColor: "text-white/85",
+      labelColor: "text-white/80",
     },
   };
   const t = tones[tint];
@@ -720,39 +859,6 @@ function BandCard({
 }
 
 /* === Decorative micro-elements floating around the hero === */
-function DecorDot({
-  className,
-  delay = 0,
-}: {
-  className: string;
-  delay?: number;
-}) {
-  return (
-    <span
-      aria-hidden
-      className={cn("absolute rounded-full animate-[twinkle_3s_ease-in-out_infinite]", className)}
-      style={{ animationDelay: `${delay}s` }}
-    />
-  );
-}
-function DecorRing({
-  className,
-  delay = 0,
-}: {
-  className: string;
-  delay?: number;
-}) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "absolute rounded-full border-2 animate-[twinkle_3.4s_ease-in-out_infinite]",
-        className,
-      )}
-      style={{ animationDelay: `${delay}s` }}
-    />
-  );
-}
 function DecorStar({
   className,
   delay = 0,
@@ -784,7 +890,7 @@ function NameScreen({
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
-        <FriendlyMascot size="md" />
+        <LumiScene mood="wave" size="sm" variant="name" />
         <h1 className="mt-8 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           What should I call you?
         </h1>
@@ -822,7 +928,7 @@ function ModuleScreen({
     <ScreenShell>
       <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="flex flex-col items-center text-center">
-          <FriendlyMascot size="sm" />
+          <LumiScene mood="wave" size="sm" variant="name" compact />
           <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
             Nice to meet you, <span className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">{name}</span>!
           </h1>
@@ -853,7 +959,7 @@ function PlacementScreen({ onSkip }: { onSkip: () => void }) {
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
-        <FriendlyMascot size="md" mood="thinking" />
+        <LumiScene size="xxl" mood="thinking" variant="placement" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           The important bit.
         </h1>
@@ -862,17 +968,12 @@ function PlacementScreen({ onSkip }: { onSkip: () => void }) {
           personalize your lessons — instead of guessing.
         </p>
 
-        <div className="mt-7 w-full max-w-xs space-y-2.5 text-left bg-white/60 backdrop-blur-sm p-5 rounded-3xl border-2 border-white/80 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
-          <BulletCheck>10 adaptive questions</BulletCheck>
-          <BulletCheck>1 short writing sample</BulletCheck>
-          <BulletCheck>Get your CEFR level & starting band</BulletCheck>
-        </div>
       </div>
       <Footer>
         <PrimaryLink href="/placement?from=onboarding">Start placement</PrimaryLink>
         <button
           onClick={onSkip}
-          className="mt-3 w-full text-center text-xs font-semibold text-ink/40 hover:text-ink/70 py-2"
+          className="mt-3 w-full text-center text-xs font-semibold text-white/40 hover:text-white/75 py-2"
         >
           I'll do it later
         </button>
@@ -884,36 +985,55 @@ function PlacementScreen({ onSkip }: { onSkip: () => void }) {
 function PlacementCelebrationScreen({
   placement,
   name,
+  reviewMode,
+  onContinue,
+  onRetake,
 }: {
   placement: PlacementResult;
   name: string;
+  reviewMode: boolean;
+  onContinue: () => void;
+  onRetake: () => void;
 }) {
   const affirmation = pickPhrase(PLACEMENT_AFFIRMATIONS, placement.cefr + name);
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 animate-[fadeIn_320ms_ease-out] relative overflow-hidden">
+    <div className="flex-1 flex flex-col text-center px-6 animate-[fadeIn_320ms_ease-out] relative overflow-hidden">
       <ConfettiBurst />
-      <div className="relative">
-        <SunRays />
-        <FriendlyMascot size="lg" mood="celebrate" />
-        <SparkleParticles />
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="relative">
+          <SunRays />
+          <LumiScene size="xxl" mood="celebrate" variant="celebrate" />
+          <SparkleParticles />
+        </div>
+        <div className="mt-7 inline-flex rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-wider text-[#2b063d] shadow-[0_10px_22px_rgba(0,0,0,0.18)] animate-[bounceIn_500ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
+          {affirmation}
+        </div>
+        <h1 className="mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight text-ink leading-[1.05] animate-[fadeUp_500ms_300ms_both]">
+          You're at <span className="text-sky-600">{placement.cefr}</span>, {name}!
+        </h1>
+        <div className="mt-6 inline-flex items-baseline gap-3 bg-white rounded-3xl px-7 py-4 border-2 border-sky-200 shadow-[0_4px_0_rgba(14,165,233,0.08)] animate-[bounceIn_550ms_550ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
+          <span className="text-5xl font-extrabold text-sky-600 tabular-nums">
+            {placement.cefr}
+          </span>
+          <span className="text-base font-semibold text-ink/60">
+            ≈ Band {placement.estimatedBand.toFixed(1)}
+          </span>
+        </div>
+        <p className="mt-7 text-base text-ink/65 font-medium max-w-xs animate-[fadeUp_500ms_800ms_both]">
+          That's your starting line. Let's chart the path up.
+        </p>
       </div>
-      <p className="mt-7 inline-block bg-amber-100 text-amber-800 text-xs font-extrabold uppercase tracking-wider px-3 py-1 rounded-full animate-[bounceIn_500ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
-        {affirmation}
-      </p>
-      <h1 className="mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight text-ink leading-[1.05] animate-[fadeUp_500ms_300ms_both]">
-        You're at <span className="text-sky-600">{placement.cefr}</span>, {name}!
-      </h1>
-      <div className="mt-6 inline-flex items-baseline gap-3 bg-white rounded-3xl px-7 py-4 border-2 border-sky-200 shadow-[0_4px_0_rgba(14,165,233,0.08)] animate-[bounceIn_550ms_550ms_cubic-bezier(0.34,1.56,0.64,1)_both]">
-        <span className="text-5xl font-extrabold text-sky-600 tabular-nums">
-          {placement.cefr}
-        </span>
-        <span className="text-base font-semibold text-ink/60">
-          ≈ Band {placement.estimatedBand.toFixed(1)}
-        </span>
-      </div>
-      <p className="mt-7 text-base text-ink/65 font-medium max-w-xs animate-[fadeUp_500ms_800ms_both]">
-        That's your starting line. Let's chart the path up.
-      </p>
+      {reviewMode ? (
+        <Footer>
+          <PrimaryButton onClick={onContinue}>Continue</PrimaryButton>
+          <button
+            onClick={onRetake}
+            className="mt-3 w-full text-center text-xs font-semibold text-white/40 hover:text-white/75 py-2"
+          >
+            Retake placement
+          </button>
+        </Footer>
+      ) : null}
     </div>
   );
 }
@@ -934,11 +1054,11 @@ function PlanOfferScreen({
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
-        <FriendlyMascot size="md" mood="wave" />
+        <LumiScene size="xxl" mood="wave" variant="plan" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           {placement ? "Want a daily plan?" : `Ready when you are, ${name}.`}
         </h1>
-        <p className="mt-4 text-base text-ink/60 font-medium leading-relaxed max-w-xs">
+        <p className="mt-4 text-base text-white/70 font-medium leading-relaxed max-w-xs">
           {placement
             ? "I'll map a step-by-step path from where you are to your target band."
             : "We can refine your placement later. Want a daily plan now, or jump in?"}
@@ -958,21 +1078,21 @@ function TargetScreen({
   onChange,
   onContinue,
   onSkip,
-  submitting,
 }: {
   value: number;
   minBand: number;
   onChange: (v: number) => void;
   onContinue: () => void;
   onSkip: () => void;
-  submitting: SubmitMode | null;
 }) {
-  const bands: number[] = [];
-  for (let b = minBand; b <= 9; b += 0.5) bands.push(b);
+  const maxBand = 9;
+  const progress = ((value - minBand) / (maxBand - minBand)) * 100;
+  const marks = [4, 5, 6, 7, 8, 9];
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center mt-10">
-        <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
+        <LumiScene size="sm" mood="writing" variant="target" compact />
+        <h1 className="mt-5 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
           What band are you aiming for?
         </h1>
         <motion.div 
@@ -989,26 +1109,55 @@ function TargetScreen({
             {bandLabel(value)}
           </p>
         </motion.div>
-        <div className="mt-9 grid grid-cols-5 gap-1.5 w-full max-w-xs">
-          {bands.map((b) => (
-            <button
-              key={b}
-              onClick={() => onChange(b)}
-              className={cn(
-                "rounded-xl py-2.5 text-sm font-bold transition-all",
-                value === b
-                  ? "bg-violet-600 text-white shadow-[0_8px_20px_-6px_rgba(124,58,237,0.5)] scale-110 z-10"
-                  : "bg-white border-2 border-ink/10 text-ink/70 hover:border-violet-300 hover:bg-violet-50",
-              )}
-            >
-              {b.toFixed(1)}
-            </button>
-          ))}
+        <div className="mt-10 w-full max-w-xs">
+          <div className="relative px-1 pb-8 pt-4">
+            <input
+              type="range"
+              min={minBand}
+              max={maxBand}
+              step={0.5}
+              value={value}
+              onChange={(e) => onChange(Number(e.target.value))}
+              aria-label="Target IELTS band"
+              className="band-slider relative z-10 w-full"
+              style={{
+                background: `linear-gradient(90deg, #f0abfc 0%, #a855f7 ${progress}%, rgba(255,255,255,0.14) ${progress}%, rgba(255,255,255,0.14) 100%)`,
+              }}
+            />
+            <div className="pointer-events-none absolute left-1 right-1 top-[21px] flex justify-between">
+              {marks.map((mark) => (
+                <span
+                  key={mark}
+                  className={cn(
+                    "h-2.5 w-2.5 rounded-full border border-[#12031d]",
+                    mark <= value ? "bg-fuchsia-200" : "bg-[#1d0b28]",
+                  )}
+                />
+              ))}
+            </div>
+            <div className="mt-4 flex justify-between text-[11px] font-black tabular-nums text-white/55">
+              {marks.map((mark) => (
+                <button
+                  key={mark}
+                  type="button"
+                  onClick={() => onChange(mark)}
+                  className={cn(
+                    "rounded-full px-1.5 py-1 transition",
+                    Math.floor(value) === mark
+                      ? "text-fuchsia-100"
+                      : "hover:text-white",
+                  )}
+                >
+                  {mark.toFixed(0)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
       <Footer>
         <PrimaryButton onClick={onContinue}>Continue</PrimaryButton>
-        <SkipLink onSkip={onSkip} submitting={submitting} />
+        <SkipLink onSkip={onSkip} submitting={null} label="Skip for now" />
       </Footer>
     </ScreenShell>
   );
@@ -1020,21 +1169,19 @@ function DateScreen({
   onChange,
   onContinue,
   onSkip,
-  submitting,
 }: {
   value: string;
   today: string;
   onChange: (v: string) => void;
   onContinue: () => void;
   onSkip: () => void;
-  submitting: SubmitMode | null;
 }) {
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= today;
   const days = valid ? daysUntil(value) : null;
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center mt-10">
-        <FriendlyMascot size="sm" />
+        <LumiScene size="md" mood="thinking" variant="date" />
         <h1 className="mt-6 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink text-center leading-[1.1]">
           When's your exam?
         </h1>
@@ -1065,7 +1212,7 @@ function DateScreen({
         <PrimaryButton onClick={onContinue} disabled={!valid}>
           Continue
         </PrimaryButton>
-        <SkipLink onSkip={onSkip} submitting={submitting} />
+        <SkipLink onSkip={onSkip} submitting={null} label="Skip for now" />
       </Footer>
     </ScreenShell>
   );
@@ -1093,6 +1240,9 @@ function TimeScreen({
     <ScreenShell>
       <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="text-center">
+          <div className="mb-6 flex justify-center">
+            <LumiScene size="sm" mood="default" variant="time" compact />
+          </div>
           <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
             How much time daily?
           </h1>
@@ -1171,6 +1321,9 @@ function WeakScreen({
     <ScreenShell>
       <div className="relative flex-1 flex flex-col justify-center mt-10">
         <div className="text-center">
+          <div className="mb-6 flex justify-center">
+            <LumiScene size="md" mood="writing" variant="weak" />
+          </div>
           <h1 className="text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
             Which skills need work?
           </h1>
@@ -1232,7 +1385,7 @@ function ReadyScreen({
   return (
     <ScreenShell>
       <div className="relative flex-1 flex flex-col items-center justify-center text-center mt-10">
-        <FriendlyMascot size="lg" mood="celebrate" />
+        <LumiScene size="xxl" mood="celebrate" variant="ready" />
         <h1 className="mt-7 text-3xl sm:text-[2.4rem] font-extrabold tracking-tight text-ink leading-[1.1]">
           You're all set, <span className="bg-gradient-to-br from-violet-500 to-fuchsia-500 bg-clip-text text-transparent">{name}</span>!
         </h1>
@@ -1379,10 +1532,184 @@ function SparkleParticles() {
   );
 }
 
+function LumiScene({
+  mood,
+  size,
+  variant,
+  compact = false,
+}: {
+  mood: "default" | "wave" | "thinking" | "celebrate" | "writing";
+  size: "sm" | "md" | "lg" | "xl" | "xxl";
+  variant: "name" | "placement" | "celebrate" | "plan" | "target" | "date" | "time" | "weak" | "ready";
+  compact?: boolean;
+}) {
+  const propsByVariant: Record<typeof variant, React.ReactNode> = {
+    name: (
+      <>
+        <span className="absolute bottom-8 left-8 h-8 w-14 -rotate-12 rounded-[10px] bg-white/18" />
+      </>
+    ),
+    placement: (
+      <>
+        <span className="absolute bottom-9 left-8 h-9 w-20 -rotate-6 rounded-xl border border-violet-300/50 bg-[#2a0d3b]" />
+        <span className="absolute bottom-12 left-12 h-2 w-10 rounded-full bg-fuchsia-300" />
+        <span className="absolute right-8 top-10 text-2xl font-black text-amber-200">?</span>
+      </>
+    ),
+    celebrate: (
+      <>
+        <span className="absolute left-5 top-10 h-10 w-10 rotate-12 rounded-xl bg-amber-300/90" />
+        <span className="absolute bottom-11 right-8 h-8 w-8 -rotate-12 rounded-lg bg-fuchsia-300/85" />
+      </>
+    ),
+    plan: (
+      <>
+        <span className="absolute bottom-8 left-10 h-11 w-16 -rotate-12 rounded-xl bg-white/18" />
+        <span className="absolute bottom-14 right-10 h-7 w-12 rotate-12 rounded-lg border border-fuchsia-200/50 bg-fuchsia-300/20" />
+      </>
+    ),
+    target: (
+      <>
+        <span className="absolute bottom-8 left-9 h-12 w-12 rounded-full border-[6px] border-amber-200/90" />
+        <span className="absolute bottom-[50px] left-[54px] h-4 w-4 rounded-full bg-amber-200" />
+      </>
+    ),
+    date: (
+      <>
+        <span className="absolute bottom-8 left-8 h-14 w-16 rotate-[-8deg] rounded-2xl bg-white/18" />
+        <span className="absolute bottom-[58px] left-12 h-1.5 w-8 rounded-full bg-fuchsia-300" />
+        <span className="absolute bottom-[46px] left-12 h-1.5 w-10 rounded-full bg-white/45" />
+      </>
+    ),
+    time: (
+      <>
+        <span className="absolute bottom-8 left-10 h-12 w-12 rounded-full border-[5px] border-fuchsia-200/70" />
+        <span className="absolute bottom-[53px] left-[62px] h-5 w-1.5 origin-bottom rotate-45 rounded-full bg-fuchsia-200" />
+      </>
+    ),
+    weak: (
+      <>
+        <span className="absolute bottom-8 left-7 h-10 w-20 -rotate-6 rounded-xl bg-[#2a0d3b] ring-1 ring-fuchsia-300/35" />
+        <span className="absolute bottom-[50px] left-10 h-2 w-11 rounded-full bg-amber-200" />
+      </>
+    ),
+    ready: (
+      <>
+        <span className="absolute bottom-9 left-8 h-10 w-16 -rotate-12 rounded-xl bg-amber-300/90" />
+        <span className="absolute bottom-9 right-8 h-10 w-16 rotate-12 rounded-xl bg-fuchsia-300/80" />
+      </>
+    ),
+  };
+
+  return (
+    <div className={cn("relative mx-auto", compact ? "h-[132px] w-[170px]" : size === "xxl" ? "h-[280px] w-[340px]" : "h-[220px] w-[260px]")}>
+      <div
+        aria-hidden
+        className="absolute bottom-3 left-1/2 h-10 w-[70%] -translate-x-1/2 rounded-full bg-fuchsia-300/18 blur-xl"
+      />
+      <div className="absolute inset-0">{propsByVariant[variant]}</div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[58%]">
+        <FriendlyMascot mood={mood} size={size} />
+      </div>
+    </div>
+  );
+}
+
 /** Inline keyframes shared across visual primitives. */
 function VisualKeyframes() {
   return (
     <style jsx global>{`
+      .onboarding-dark .text-ink {
+        color: rgba(255, 255, 255, 0.96) !important;
+      }
+      .onboarding-dark h1,
+      .onboarding-dark h2,
+      .onboarding-dark h3,
+      .onboarding-dark strong {
+        color: rgba(255, 255, 255, 0.96);
+      }
+      .onboarding-dark p {
+        color: rgba(255, 255, 255, 0.66);
+      }
+      .onboarding-dark .text-ink\\/25 {
+        color: rgba(255, 255, 255, 0.25) !important;
+      }
+      .onboarding-dark .text-ink\\/40 {
+        color: rgba(255, 255, 255, 0.4) !important;
+      }
+      .onboarding-dark .text-ink\\/45 {
+        color: rgba(255, 255, 255, 0.45) !important;
+      }
+      .onboarding-dark .text-ink\\/50 {
+        color: rgba(255, 255, 255, 0.5) !important;
+      }
+      .onboarding-dark .text-ink\\/55 {
+        color: rgba(255, 255, 255, 0.55) !important;
+      }
+      .onboarding-dark .text-ink\\/60 {
+        color: rgba(255, 255, 255, 0.6) !important;
+      }
+      .onboarding-dark .text-ink\\/65 {
+        color: rgba(255, 255, 255, 0.65) !important;
+      }
+      .onboarding-dark .text-ink\\/70 {
+        color: rgba(255, 255, 255, 0.7) !important;
+      }
+      .onboarding-dark .text-ink\\/75 {
+        color: rgba(255, 255, 255, 0.75) !important;
+      }
+      .onboarding-dark .bg-white\\/50,
+      .onboarding-dark .bg-white\\/60,
+      .onboarding-dark .bg-white\\/80,
+      .onboarding-dark .bg-white\\/90 {
+        background-color: rgba(45, 17, 65, 0.72) !important;
+      }
+      .onboarding-dark .border-ink\\/8,
+      .onboarding-dark .border-ink\\/10 {
+        border-color: rgba(216, 180, 254, 0.24) !important;
+      }
+      .band-slider {
+        height: 12px;
+        border-radius: 999px;
+        appearance: none;
+        -webkit-appearance: none;
+        outline: none;
+        box-shadow: inset 0 0 0 1px rgba(216, 180, 254, 0.12);
+      }
+      .band-slider::-webkit-slider-runnable-track {
+        height: 12px;
+        border-radius: 999px;
+      }
+      .band-slider::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        height: 34px;
+        width: 34px;
+        margin-top: -11px;
+        border-radius: 999px;
+        border: 5px solid #f5d0fe;
+        background: #ffffff;
+        box-shadow: 0 12px 28px rgba(168, 85, 247, 0.44), 0 0 0 5px rgba(240, 171, 252, 0.14);
+        cursor: grab;
+      }
+      .band-slider:active::-webkit-slider-thumb {
+        cursor: grabbing;
+        transform: scale(1.05);
+      }
+      .band-slider::-moz-range-track {
+        height: 12px;
+        border-radius: 999px;
+        background: transparent;
+      }
+      .band-slider::-moz-range-thumb {
+        height: 24px;
+        width: 24px;
+        border-radius: 999px;
+        border: 5px solid #f5d0fe;
+        background: #ffffff;
+        box-shadow: 0 12px 28px rgba(168, 85, 247, 0.44), 0 0 0 5px rgba(240, 171, 252, 0.14);
+        cursor: grab;
+      }
       @keyframes confettiFall {
         0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
         60% { opacity: 1; }
@@ -1426,13 +1753,14 @@ function FriendlyMascot({
   size = "md",
 }: {
   mood?: "default" | "wave" | "thinking" | "celebrate" | "writing";
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "xl" | "xxl";
 }) {
   const dims = {
     sm: { w: 96, h: 110 },
     md: { w: 130, h: 150 },
     lg: { w: 170, h: 195 },
     xl: { w: 200, h: 230 },
+    xxl: { w: 260, h: 300 },
   } as const;
   const { w, h } = dims[size];
 
@@ -1620,9 +1948,7 @@ function PrimaryButton({
   disabled?: boolean;
   variant?: "dark" | "light";
 }) {
-  const baseStyle = variant === "dark" 
-    ? "bg-ink hover:bg-black text-white shadow-ink/20"
-    : "bg-white hover:bg-slate-50 text-slate-900 shadow-white/10";
+  const baseStyle = "bg-white hover:bg-slate-50 text-[#11051c] shadow-white/10";
 
   return (
     <button
@@ -1630,7 +1956,7 @@ function PrimaryButton({
       disabled={disabled}
       className={cn(
         "group relative w-full rounded-full py-[1.15rem] px-6 text-[15px] font-extrabold transition-all overflow-hidden tracking-tight shadow-lg",
-        disabled ? "opacity-40 cursor-not-allowed bg-ink/20 text-ink/50 shadow-none" : `${baseStyle} hover:-translate-y-0.5 active:translate-y-0`,
+        disabled ? "opacity-45 cursor-not-allowed bg-white/35 text-[#11051c]/45 shadow-none" : `${baseStyle} hover:-translate-y-0.5 active:translate-y-0`,
       )}
     >
       <span className="relative inline-flex items-center justify-center gap-1.5">
@@ -1644,7 +1970,7 @@ function PrimaryLink({ href, children }: { href: string; children: React.ReactNo
   return (
     <Link
       href={href}
-      className="group relative block w-full text-center rounded-full py-[1.15rem] px-6 text-[15px] font-extrabold text-white tracking-tight transition-all overflow-hidden hover:-translate-y-0.5 bg-ink hover:bg-black shadow-lg shadow-ink/20"
+      className="group relative block w-full text-center rounded-full bg-white py-[1.15rem] px-6 text-[15px] font-extrabold text-[#11051c] tracking-tight transition-all overflow-hidden hover:-translate-y-0.5 hover:bg-slate-50 shadow-lg shadow-white/10"
     >
       <span className="relative">{children}</span>
     </Link>
@@ -1713,7 +2039,7 @@ function SkipLink({
     <button
       onClick={onSkip}
       disabled={submitting !== null}
-      className="mt-3 w-full text-center text-xs font-semibold text-ink/40 hover:text-ink/70 py-2 disabled:opacity-40"
+      className="mt-3 w-full text-center text-xs font-semibold text-white/40 hover:text-white/75 py-2 disabled:opacity-40"
     >
       {submitting === "withoutPlan" ? (
         <span className="inline-flex items-center gap-2">
@@ -1740,40 +2066,64 @@ function BuildingPlanScreen({ name }: { name: string }) {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center px-6 bg-white relative overflow-hidden">
-      <div
-        aria-hidden
-        className="absolute -top-24 -left-20 h-80 w-80 rounded-full bg-sky-200/40 blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-sky-100/50 blur-3xl"
-      />
+    <div className="onboarding-dark min-h-[100dvh] flex items-center justify-center px-6 bg-[#050008] relative overflow-hidden">
+      <VisualKeyframes />
+      <DynamicBackground stage="plan-offer" />
 
-      <div className="relative max-w-sm w-full text-center">
-        <div className="relative mx-auto h-24 w-24 mb-8">
-          <div className="absolute inset-0 rounded-full border-4 border-sky-100" />
-          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-sky-500 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Sparkles className="h-9 w-9 text-sky-500 animate-pulse" />
+      <div className="relative max-w-sm w-full text-center z-10">
+        <div className="relative mx-auto mb-7 h-[220px] w-[280px]">
+          <div
+            aria-hidden
+            className="absolute left-1/2 top-[48%] h-[168px] w-[168px] -translate-x-1/2 -translate-y-1/2"
+          >
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2.8, repeat: Infinity, ease: "linear" }}
+              className="h-full w-full rounded-full border-[10px] border-fuchsia-200/12 border-t-fuchsia-200"
+            />
           </div>
+          <div
+            aria-hidden
+            className="absolute left-1/2 top-[48%] h-[208px] w-[208px] -translate-x-1/2 -translate-y-1/2"
+          >
+            <motion.div
+              animate={{ rotate: -360 }}
+              transition={{ duration: 5.2, repeat: Infinity, ease: "linear" }}
+              className="h-full w-full rounded-full border border-violet-200/20 border-b-fuchsia-300/60"
+            />
+          </div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <FriendlyMascot mood="writing" size="xl" />
+          </div>
+          <motion.div
+            aria-hidden
+            animate={{ y: [0, -7, 0], opacity: [0.75, 1, 0.75] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute bottom-9 left-1/2 h-6 w-36 -translate-x-1/2 rounded-full bg-fuchsia-300/18 blur-xl"
+          />
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+        <h1 className="text-3xl font-black tracking-tight leading-tight text-white">
           {name ? `Hang tight, ${name} —` : "Hang tight —"}
         </h1>
-        <p className="mt-1 text-lg font-semibold text-ink/70">
-          we're tailoring your IELTS plan
+        <p key={phraseIdx} className="mx-auto mt-3 max-w-[290px] text-[1.35rem] font-black leading-snug text-white animate-[fadeIn_400ms_ease-out]">
+          {PLAN_BUILDER_PHRASES[phraseIdx]}
+        </p>
+        <p className="mt-3 text-sm font-semibold text-white/48">
+          Building your lesson path
         </p>
 
-        <div className="mt-8 min-h-[3em] text-sm text-ink/60 leading-relaxed">
-          <span key={phraseIdx} className="inline-block animate-[fadeIn_400ms_ease-out]">
-            {PLAN_BUILDER_PHRASES[phraseIdx]}
-          </span>
+        <div className="mx-auto mt-8 h-2 max-w-[260px] overflow-hidden rounded-full bg-white/12">
+          <motion.div
+            className="h-full rounded-full bg-gradient-to-r from-fuchsia-300 to-violet-300"
+            animate={{ x: ["-85%", "120%"] }}
+            transition={{ duration: 1.45, repeat: Infinity, ease: "easeInOut" }}
+            style={{ width: "70%" }}
+          />
         </div>
 
-        <p className="mt-10 text-[11px] text-ink/40 leading-relaxed">
-          AI generation usually takes 20–60 seconds. Please don't refresh.
+        <p className="mt-10 text-[11px] font-semibold text-white/30 leading-relaxed">
+          Please keep this screen open.
         </p>
       </div>
     </div>
