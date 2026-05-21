@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -47,7 +47,7 @@ interface McqAnswer {
   correct: boolean;
 }
 
-export default function PlacementPage() {
+function PlacementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromOnboarding = searchParams?.get("from") === "onboarding";
@@ -258,6 +258,14 @@ export default function PlacementPage() {
   if (step === "error")
     return <ErrorScreen message={error ?? "Something went wrong"} />;
   return <SubmittingScreen />;
+}
+
+export default function PlacementPage() {
+  return (
+    <Suspense fallback={<SubmittingScreen />}>
+      <PlacementContent />
+    </Suspense>
+  );
 }
 
 // ============================================================
