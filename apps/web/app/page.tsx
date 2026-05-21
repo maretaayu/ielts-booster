@@ -6,13 +6,19 @@ import {
   ArrowUpRight,
   Bell,
   BookOpen,
-  ChevronRight,
+  CalendarDays,
+  Check,
   ClipboardCheck,
+  Clock3,
+  Flame,
   Mic,
+  MoreHorizontal,
   PenLine,
+  Play,
   Sparkles,
-  TrendingDown,
-  TrendingUp,
+  Star,
+  Trophy,
+  Video,
 } from "lucide-react";
 import type {
   Attempt,
@@ -29,7 +35,6 @@ import {
 } from "@/lib/api";
 import { bandColor, cn, formatBand } from "@/lib/utils";
 import { BottomNav } from "@/components/BottomNav";
-import { LevelLadderCard } from "@/components/LevelLadder";
 
 type LoadState<T> = { status: "loading" | "ready" | "error"; data: T | null };
 
@@ -83,27 +88,32 @@ export default function Home() {
     return <div className="mx-auto max-w-md px-6 pt-20 text-center text-ink/40 text-sm">Redirecting…</div>;
   }
 
-  const placementBand = profile.data?.placement?.estimatedBand ?? profile.data?.currentBand ?? 5.5;
-  const targetBand = profile.data?.targetBand ?? 7.0;
-  const totalExercises = (attempts.data?.attempts.length ?? 0) + (speaking.data?.sessions.length ?? 0);
+  const placementBand = normalizeBand(
+    profile.data?.placement?.estimatedBand ?? profile.data?.currentBand,
+    5.5,
+  );
+  const targetBand = normalizeBand(profile.data?.targetBand, 7.0);
+  const totalExercises =
+    (attempts.data?.attempts.length ?? 0) +
+    (speaking.data?.sessions.length ?? 0) +
+    (mocks.data?.sessions.filter((m) => m.status === "completed").length ?? 0);
 
   return (
-    <div className="mx-auto max-w-md sm:max-w-lg px-6 pt-7 pb-32 sm:pb-28">
-      <TopBar name={profile.data?.name} />
-      
-      {hydrated && profile.status === "ready" && (
-        <LevelLadderCard 
-          placementBand={placementBand} 
-          targetBand={targetBand}
-          totalExercises={totalExercises}
-        />
-      )}
-
-      <ContinueCard profileState={profile} planState={plan} />
-      <ProgressCard
+    <div className="mx-auto max-w-md sm:max-w-lg px-4 pt-5 pb-32 sm:pb-28">
+      <TopBar
+        name={profile.data?.name}
+        targetBand={targetBand}
+        daysToExam={daysUntil(profile.data?.examDate)}
+      />
+      <LiveClassBanner />
+      <GamifiedProgressCard
+        placementBand={placementBand}
+        targetBand={targetBand}
+        totalExercises={totalExercises}
         mocks={mocks.data?.sessions ?? []}
         ready={mocks.status !== "loading"}
       />
+      <YourPlanCard profileState={profile} planState={plan} />
       <PracticeGrid />
       <MockTestCTA />
       <RecentStrip
@@ -116,18 +126,29 @@ export default function Home() {
   );
 }
 
-function TopBar({ name }: { name?: string }) {
+function TopBar({
+  name,
+  targetBand,
+  daysToExam,
+}: {
+  name?: string;
+  targetBand: number;
+  daysToExam: number | null;
+}) {
   const initial = (name?.trim()?.[0] ?? "?").toUpperCase();
   return (
     <header className="flex items-center justify-between">
       <Link href="/profile" className="flex items-center gap-3 min-w-0 group">
-        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-violet-300 via-fuchsia-300 to-rose-300 flex items-center justify-center text-white font-semibold text-lg shadow-soft shrink-0 ring-2 ring-white group-active:scale-95 transition">
+        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-teal-200 via-sky-200 to-violet-300 flex items-center justify-center text-white font-semibold text-lg shadow-soft shrink-0 ring-2 ring-white group-active:scale-95 transition">
           {initial}
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-ink/45 leading-tight">Hey,</div>
-          <div className="text-base font-semibold leading-tight truncate">
-            {name ?? "Student"}
+          <div className="text-[11px] text-ink/45 leading-tight">
+            Target {formatBand(targetBand)}
+            {daysToExam !== null ? ` · ${daysToExam}d left` : ""}
+          </div>
+          <div className="text-2xl font-bold leading-tight tracking-tight truncate">
+            Hi {name ?? "Student"}
           </div>
         </div>
       </Link>
@@ -139,6 +160,30 @@ function TopBar({ name }: { name?: string }) {
         <span className="absolute top-2.5 right-2.5 h-2 w-2 rounded-full bg-rose-500" />
       </button>
     </header>
+  );
+}
+
+function LiveClassBanner() {
+  return (
+    <section className="mt-5">
+      <Link
+        href="/speak"
+        className="group flex items-center gap-3 rounded-[22px] bg-gradient-to-r from-indigo-600 via-violet-600 to-sky-600 px-4 py-3.5 text-white shadow-pop active:scale-[0.99] transition"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/20">
+          <Video className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold leading-tight">Live speaking drill ready</div>
+          <div className="mt-0.5 truncate text-[11px] text-white/70">
+            Fluency, coherence and pronunciation
+          </div>
+        </div>
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 group-hover:bg-white/20 transition">
+          <ArrowUpRight className="h-4 w-4" />
+        </span>
+      </Link>
+    </section>
   );
 }
 
@@ -157,7 +202,12 @@ function daysUntil(yyyyMmDd?: string): number | null {
   return Math.max(0, Math.round((target - today) / 86_400_000));
 }
 
-function ContinueCard({
+function normalizeBand(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return fallback;
+  return Math.max(0.5, Math.min(9, value));
+}
+
+function YourPlanCard({
   profileState,
   planState,
 }: {
@@ -178,58 +228,132 @@ function ContinueCard({
     );
   }, [plan]);
 
-  const progressPct = useMemo(() => {
-    if (!plan) return 0;
-    const total = plan.days.length;
-    if (!total) return 0;
+  const weekDays = useMemo(() => {
     const todayStr = localDateString();
-    const completed = plan.days.filter((d) => d.date < todayStr).length;
-    return Math.round((completed / total) * 100);
+    if (plan?.days.length) {
+      const nextIndex = plan.days.findIndex((d) => d.date >= todayStr);
+      const sliceStart = nextIndex === -1 ? Math.max(0, plan.days.length - 7) : Math.max(0, nextIndex);
+      return plan.days.slice(sliceStart, sliceStart + 7).map((d) => new Date(d.date + "T00:00:00"));
+    }
+
+    const base = new Date(localDateString() + "T00:00:00");
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(base);
+      date.setDate(base.getDate() + i);
+      return date;
+    });
   }, [plan]);
 
   const firstTask = today?.tasks[0];
   const taskHref = firstTask ? skillHref(firstTask.skill) : plan ? `/plan/${plan.id}` : "/plan";
   const days = daysUntil(profile?.examDate);
+  const activeDate = today?.date ?? localDateString();
 
   return (
-    <section className="mt-7">
+    <section className="mt-8">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Your plan</h2>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/plan"
+            aria-label="Open plan"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-black/[0.08] bg-white text-ink/65 shadow-soft"
+          >
+            <CalendarDays className="h-4 w-4" />
+          </Link>
+          <Link
+            href={plan ? `/plan/${plan.id}` : "/plan"}
+            aria-label="Plan details"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-black/[0.08] bg-white text-ink/65 shadow-soft"
+          >
+            <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </div>
+
+      <div className="mb-4 grid grid-cols-7 gap-1.5">
+        {weekDays.map((date) => {
+          const iso = localDateString(date);
+          const isActive = iso === activeDate;
+          const isPast = iso < localDateString();
+          return (
+            <div
+              key={iso}
+              className={cn(
+                "flex min-h-[56px] flex-col items-center justify-center rounded-[18px] text-center transition",
+                isActive
+                  ? "bg-white text-ink shadow-soft ring-1 ring-black/[0.06]"
+                  : "text-ink/45",
+              )}
+            >
+              <div className="text-[10px] font-medium">
+                {date.toLocaleDateString(undefined, { weekday: "short" })}
+              </div>
+              <div className="mt-0.5 text-lg font-semibold tabular-nums leading-none">
+                {date.getDate()}
+              </div>
+              <div
+                className={cn(
+                  "mt-1 h-1.5 w-1.5 rounded-full",
+                  isActive ? "bg-teal-500" : isPast ? "bg-emerald-400" : "bg-transparent",
+                )}
+              />
+            </div>
+          );
+        })}
+      </div>
+
       <Link
         href={taskHref}
-        className="relative block rounded-[24px] p-5 bg-violet-200/70 border border-white/60 shadow-soft active:scale-[0.99] transition overflow-hidden"
+        className="group relative block overflow-hidden rounded-[26px] bg-gradient-to-br from-teal-600 via-emerald-700 to-slate-800 p-5 text-white shadow-pop active:scale-[0.99] transition"
       >
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-10 -right-8 h-32 w-32 rounded-full bg-violet-300/60 blur-2xl" />
-          <div className="absolute -bottom-12 -left-6 h-32 w-32 rounded-full bg-rose-200/60 blur-2xl" />
-        </div>
-
-        <div className="relative flex items-center justify-between gap-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink/55">
-            Continue
-          </div>
-          {progressPct > 0 && (
-            <div className="text-xs font-semibold text-ink/70 bg-white/80 rounded-full px-2.5 py-0.5">
-              {progressPct}%
-            </div>
-          )}
-        </div>
-
-        <div className="relative mt-3 flex items-start justify-between gap-3">
+        <div className="relative flex items-start gap-4">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+            {firstTask ? iconForSkill(firstTask.skill) : <CalendarDays className="h-5 w-5" />}
+          </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] text-ink/55 truncate">
-              {today ? `Day ${today.dayIndex} · ${today.focus}` : "Your study plan"}
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-white/75">
+              {firstTask ? (
+                <>
+                  <Video className="h-3.5 w-3.5" />
+                  {labelForSkill(firstTask.skill)}
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Study plan
+                </>
+              )}
             </div>
-            <h2 className="mt-1 text-lg sm:text-xl font-bold leading-snug tracking-tight line-clamp-2">
+            <h3 className="mt-2 text-lg font-bold leading-snug tracking-tight">
               {firstTask?.title ?? (plan ? "Open today's plan" : "Create your plan")}
-            </h2>
-            <div className="mt-2 text-[11px] text-ink/55">
-              {firstTask
-                ? `${firstTask.estimatedMinutes} min · ${labelForSkill(firstTask.skill)}`
-                : null}
-              {firstTask && days !== null ? " · " : ""}
-              {days !== null ? `${days} ${days === 1 ? "day" : "days"} to exam` : ""}
+            </h3>
+            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/72">
+              {firstTask?.description ??
+                (plan
+                  ? today?.focus
+                  : "Set your target band and build a daily IELTS schedule.")}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
+              {firstTask ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  {firstTask.estimatedMinutes} min
+                </span>
+              ) : null}
+              {today ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                  Day {today.dayIndex}
+                </span>
+              ) : null}
+              {days !== null ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                  {days}d to exam
+                </span>
+              ) : null}
             </div>
           </div>
-          <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-ink text-white shrink-0">
+          <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-teal-700 group-hover:translate-x-0.5 transition">
             <ArrowUpRight className="h-4 w-4" />
           </span>
         </div>
@@ -353,10 +477,16 @@ function MockTestCTA() {
   );
 }
 
-function ProgressCard({
+function GamifiedProgressCard({
+  placementBand,
+  targetBand,
+  totalExercises,
   mocks,
   ready,
 }: {
+  placementBand: number;
+  targetBand: number;
+  totalExercises: number;
   mocks: MockTestSession[];
   ready: boolean;
 }) {
@@ -371,110 +501,184 @@ function ProgressCard({
   const latest = recent[recent.length - 1]?.overallBand;
   const prev = recent[recent.length - 2]?.overallBand;
   const delta = latest != null && prev != null ? latest - prev : null;
-  const avg =
-    recent.length > 0
-      ? recent.reduce((s, x) => s + (x.overallBand ?? 0), 0) / recent.length
-      : null;
+  const currentBand = normalizeBand(latest ?? placementBand, placementBand);
+  const bandSpan = Math.max(0.5, targetBand - placementBand);
+  const bandProgress = Math.max(0, Math.min(1, (currentBand - placementBand) / bandSpan));
+  const stars = Math.max(
+    120,
+    Math.round(totalExercises * 55 + completed.length * 160 + currentBand * 35),
+  );
+  const bandSteps = makeBandSteps(currentBand, targetBand);
+  const activeStepIndex = bandSteps.findIndex((step) => step >= currentBand);
+  const currentStepIndex = activeStepIndex === -1 ? bandSteps.length - 1 : activeStepIndex;
+  const checkpointProgress =
+    bandSteps.length > 1 ? Math.max(0, Math.min(100, (currentStepIndex / (bandSteps.length - 1)) * 100)) : 100;
 
   return (
     <section className="mt-5">
-      <div className="bg-white rounded-3xl border border-black/[0.06] shadow-soft p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink/55">
-            Mock test progress
+      <div className="overflow-hidden rounded-[28px] bg-ink p-5 text-white shadow-pop">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xl font-bold tracking-tight">Your progress</div>
+            <div className="mt-0.5 text-xs text-white/50">IELTS Band</div>
           </div>
           <Link
             href="/dashboard"
-            className="text-[11px] text-ink/55 inline-flex items-center gap-0.5"
+            aria-label="Open progress report"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/8 text-white/60"
           >
-            Report <ChevronRight className="h-3 w-3" />
+            <MoreHorizontal className="h-4 w-4" />
           </Link>
         </div>
 
         {!ready ? (
-          <div className="h-16 rounded-xl bg-stone-100 animate-pulse" />
-        ) : latest == null ? (
-          <div className="py-3 text-sm text-ink/55">
-            No completed mock tests yet —{" "}
-            <Link href="/mock" className="font-semibold text-violet-600 underline-offset-4 hover:underline">
-              take your first mock
-            </Link>{" "}
-            to start tracking your overall band.
-          </div>
+          <div className="mt-5 h-32 rounded-2xl bg-white/10 animate-pulse" />
         ) : (
-          <div className="flex items-end justify-between gap-4">
-            <div className="min-w-0">
-              <div className="text-[11px] text-ink/55">Latest band</div>
-              <div className="mt-0.5 flex items-baseline gap-2">
-                <span className={cn("text-4xl font-bold tracking-tight", bandColor(latest))}>
-                  {formatBand(latest)}
-                </span>
-                {delta != null && delta !== 0 && (
-                  <span
+          <>
+            <div className="mt-3 flex items-end justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-bold tracking-tight text-white">
+                    {formatBand(currentBand)}
+                  </span>
+                  <span className="text-xl font-semibold text-white/45">/{formatBand(targetBand)}</span>
+                </div>
+                {latest == null ? (
+                  <div className="mt-1 text-xs text-white/48">Complete a mock to calibrate your band</div>
+                ) : delta != null && delta !== 0 ? (
+                  <div
                     className={cn(
-                      "inline-flex items-center gap-0.5 text-xs font-semibold",
-                      delta > 0 ? "text-emerald-600" : "text-rose-600",
+                      "mt-1 text-xs font-semibold",
+                      delta > 0 ? "text-emerald-300" : "text-rose-300",
                     )}
                   >
-                    {delta > 0 ? (
-                      <TrendingUp className="h-3.5 w-3.5" />
-                    ) : (
-                      <TrendingDown className="h-3.5 w-3.5" />
-                    )}
-                    {(delta > 0 ? "+" : "") + delta.toFixed(1)}
-                  </span>
+                    {(delta > 0 ? "+" : "") + delta.toFixed(1)} from last mock
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs text-white/48">Keep collecting checkpoint stars</div>
                 )}
               </div>
-              {avg != null && (
-                <div className="mt-1 text-[11px] text-ink/55">
-                  Avg {formatBand(avg)} over last {recent.length}
+              <div className="rounded-2xl bg-white/8 px-3 py-2 text-right">
+                <div className="flex items-center justify-end gap-1 text-amber-300">
+                  <Star className="h-4 w-4 fill-amber-300" />
+                  <span className="text-lg font-bold tabular-nums">{stars}</span>
                 </div>
-              )}
+                <div className="mt-0.5 text-[10px] text-white/45">Reward stars</div>
+              </div>
             </div>
-            <div className="shrink-0">
-              <Sparkline values={recent.map((r) => r.overallBand!).filter((v) => typeof v === "number")} />
+
+            <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/12">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-teal-300 via-sky-300 to-violet-300"
+                style={{ width: `${Math.max(8, bandProgress * 100)}%` }}
+              />
             </div>
-          </div>
+
+            <div className="mt-5 rounded-[22px] bg-gradient-to-br from-teal-500 via-indigo-500 to-violet-600 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-bold">Your path to Band {formatBand(targetBand)}</div>
+                <div className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-700">
+                  {stars} <span className="text-amber-500">★</span>
+                </div>
+              </div>
+
+              <div className="relative mt-5 h-16">
+                <div className="absolute left-4 right-4 top-6 h-2 rounded-full bg-white/80" />
+                <div
+                  className="absolute left-4 top-6 h-2 rounded-full bg-amber-300"
+                  style={{ width: `calc((100% - 2rem) * ${checkpointProgress / 100})` }}
+                />
+                <div className="absolute inset-x-0 top-0 grid grid-cols-4">
+                  {bandSteps.map((step, index) => {
+                    const isCurrent = index === currentStepIndex;
+                    const complete = index < currentStepIndex;
+                    const isGoal = index === bandSteps.length - 1;
+                    return (
+                      <div key={`${step}-${index}`} className="flex flex-col items-center">
+                        <div
+                          className={cn(
+                            "flex h-12 w-12 items-center justify-center rounded-2xl border-4 text-white shadow-[0_6px_16px_rgba(0,0,0,0.18)]",
+                            complete
+                              ? "border-white bg-violet-800"
+                              : isCurrent
+                                ? "border-white bg-white text-indigo-700"
+                                : "border-white/80 bg-white/30 backdrop-blur",
+                          )}
+                        >
+                          {complete ? (
+                            <Check className="h-4 w-4" />
+                          ) : isGoal ? (
+                            <Trophy className="h-4 w-4 fill-amber-300 text-amber-400" />
+                          ) : isCurrent ? (
+                            <Star className="h-4 w-4 fill-amber-300 text-amber-400" />
+                          ) : (
+                            <Flame className="h-4 w-4 fill-orange-300 text-orange-300" />
+                          )}
+                        </div>
+                        <div className="mt-1 text-[10px] font-bold leading-none">
+                          {formatBand(step)}
+                        </div>
+                        <div className="mt-1 max-w-[64px] truncate text-[9px] font-semibold leading-none text-white/65">
+                          {isCurrent ? "You" : isGoal ? "Goal" : complete ? "Done" : "Next"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-1 flex items-center justify-between text-[10px] font-semibold text-white/70">
+                <span>Runner Level {Math.max(1, Math.floor(stars / 500))}</span>
+                <span>{Math.round(bandProgress * 100)}% to target</span>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </section>
   );
 }
 
-function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) {
-    return <div className="h-10 w-28 rounded-md bg-stone-100" />;
+function makeBandSteps(currentBand: number, targetBand: number): number[] {
+  const start = clampBand(roundToHalf(currentBand));
+  const goal = clampBand(roundToHalf(targetBand));
+  if (goal <= start) {
+    const previous = [start - 1, start - 0.5, start].map(clampBand);
+    return [...new Set([...previous, goal])].slice(-4);
   }
-  const W = 112;
-  const H = 40;
-  const P = 4;
-  const min = Math.min(...values) - 0.25;
-  const max = Math.max(...values) + 0.25;
-  const range = max - min || 1;
-  const xs = values.map((_, i) => P + ((W - P * 2) * i) / (values.length - 1));
-  const ys = values.map((v) => H - P - ((H - P * 2) * (v - min)) / range);
-  const path = values.map((_, i) => `${i === 0 ? "M" : "L"} ${xs[i]} ${ys[i]}`).join(" ");
-  const area = `${path} L ${xs[xs.length - 1]} ${H} L ${xs[0]} ${H} Z`;
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden>
-      <defs>
-        <linearGradient id="spark-fill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#spark-fill)" />
-      <path d={path} fill="none" stroke="#8b5cf6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <circle
-        cx={xs[xs.length - 1]}
-        cy={ys[ys.length - 1]}
-        r={3}
-        fill="#8b5cf6"
-        stroke="white"
-        strokeWidth={2}
-      />
-    </svg>
-  );
+
+  const allSteps: number[] = [];
+  for (let band = start; band <= goal + 0.001; band += 0.5) {
+    allSteps.push(clampBand(roundToHalf(band)));
+  }
+
+  if (allSteps.length <= 4) return allSteps;
+  return [allSteps[0], allSteps[Math.ceil((allSteps.length - 1) / 3)], allSteps[Math.ceil(((allSteps.length - 1) * 2) / 3)], goal];
+}
+
+function roundToHalf(value: number): number {
+  return Math.round(value * 2) / 2;
+}
+
+function clampBand(value: number): number {
+  return Math.max(0, Math.min(9, value));
+}
+
+function iconForSkill(skill: string): React.ReactNode {
+  switch (skill) {
+    case "writing":
+      return <PenLine className="h-5 w-5" />;
+    case "reading":
+      return <BookOpen className="h-5 w-5" />;
+    case "speaking":
+      return <Mic className="h-5 w-5" />;
+    case "vocabulary":
+      return <Sparkles className="h-5 w-5" />;
+    case "listening":
+      return <Play className="h-5 w-5" />;
+    default:
+      return <ClipboardCheck className="h-5 w-5" />;
+  }
 }
 
 function RecentStrip({
