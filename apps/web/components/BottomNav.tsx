@@ -81,7 +81,7 @@ export function BottomNav({ active }: { active?: BottomNavKey }) {
       className="fixed bottom-0 inset-x-0 z-40 pb-[env(safe-area-inset-bottom)]"
       aria-label="Primary"
     >
-      <div className="mx-auto max-w-sm sm:max-w-md mb-4 bg-ink rounded-full px-2 py-2 flex items-center justify-around shadow-pop">
+      <div className="mx-auto max-w-sm sm:max-w-md mb-4 rounded-full border border-black/[0.08] bg-white/94 px-2 py-2 flex items-center justify-around shadow-pop backdrop-blur">
         {ITEMS.map((it) => {
           const isActive = it.key === current;
           return (
@@ -95,7 +95,7 @@ export function BottomNav({ active }: { active?: BottomNavKey }) {
               <span
                 className={cn(
                   "h-11 w-11 rounded-full flex items-center justify-center transition-all",
-                  isActive ? "bg-violet-300 text-ink scale-105" : "text-white/70 hover:text-white",
+                  isActive ? "bg-ink text-white scale-105" : "text-ink/45 hover:text-ink",
                 )}
               >
                 {it.icon}

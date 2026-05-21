@@ -18,7 +18,6 @@ import {
   Sparkles,
   Star,
   Trophy,
-  Video,
 } from "lucide-react";
 import type {
   Attempt,
@@ -105,7 +104,6 @@ export default function Home() {
         targetBand={targetBand}
         daysToExam={daysUntil(profile.data?.examDate)}
       />
-      <LiveClassBanner />
       <GamifiedProgressCard
         placementBand={placementBand}
         targetBand={targetBand}
@@ -139,7 +137,7 @@ function TopBar({
   return (
     <header className="flex items-center justify-between">
       <Link href="/profile" className="flex items-center gap-3 min-w-0 group">
-        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-teal-200 via-sky-200 to-violet-300 flex items-center justify-center text-white font-semibold text-lg shadow-soft shrink-0 ring-2 ring-white group-active:scale-95 transition">
+        <div className="h-12 w-12 rounded-full bg-gradient-to-br from-sky-300 via-indigo-300 to-violet-400 flex items-center justify-center text-white font-semibold text-lg shadow-soft shrink-0 ring-2 ring-white group-active:scale-95 transition">
           {initial}
         </div>
         <div className="min-w-0">
@@ -162,31 +160,6 @@ function TopBar({
     </header>
   );
 }
-
-function LiveClassBanner() {
-  return (
-    <section className="mt-5">
-      <Link
-        href="/speak"
-        className="group flex items-center gap-3 rounded-[22px] bg-gradient-to-r from-indigo-600 via-violet-600 to-sky-600 px-4 py-3.5 text-white shadow-pop active:scale-[0.99] transition"
-      >
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/20">
-          <Video className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold leading-tight">Live speaking drill ready</div>
-          <div className="mt-0.5 truncate text-[11px] text-white/70">
-            Fluency, coherence and pronunciation
-          </div>
-        </div>
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 group-hover:bg-white/20 transition">
-          <ArrowUpRight className="h-4 w-4" />
-        </span>
-      </Link>
-    </section>
-  );
-}
-
 
 function localDateString(d: Date = new Date()): string {
   const y = d.getFullYear();
@@ -295,7 +268,7 @@ function YourPlanCard({
               <div
                 className={cn(
                   "mt-1 h-1.5 w-1.5 rounded-full",
-                  isActive ? "bg-teal-500" : isPast ? "bg-emerald-400" : "bg-transparent",
+                  isActive ? "bg-indigo-500" : isPast ? "bg-sky-400" : "bg-transparent",
                 )}
               />
             </div>
@@ -305,17 +278,17 @@ function YourPlanCard({
 
       <Link
         href={taskHref}
-        className="group relative block overflow-hidden rounded-[26px] bg-gradient-to-br from-teal-600 via-emerald-700 to-slate-800 p-5 text-white shadow-pop active:scale-[0.99] transition"
+        className="group block rounded-[26px] border border-black/[0.06] bg-white/94 p-5 text-ink shadow-soft active:scale-[0.99] transition hover:shadow-pop"
       >
-        <div className="relative flex items-start gap-4">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
             {firstTask ? iconForSkill(firstTask.skill) : <CalendarDays className="h-5 w-5" />}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-medium text-white/75">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-700">
               {firstTask ? (
                 <>
-                  <Video className="h-3.5 w-3.5" />
+                  {iconForSkill(firstTask.skill, "h-3.5 w-3.5")}
                   {labelForSkill(firstTask.skill)}
                 </>
               ) : (
@@ -326,34 +299,28 @@ function YourPlanCard({
               )}
             </div>
             <h3 className="mt-2 text-lg font-bold leading-snug tracking-tight">
-              {firstTask?.title ?? (plan ? "Open today's plan" : "Create your plan")}
+              {firstTask?.title ?? (plan ? "Open plan" : "Create plan")}
             </h3>
-            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/72">
-              {firstTask?.description ??
-                (plan
-                  ? today?.focus
-                  : "Set your target band and build a daily IELTS schedule.")}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-ink/58">
               {firstTask ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1">
                   <Clock3 className="h-3.5 w-3.5" />
                   {firstTask.estimatedMinutes} min
                 </span>
               ) : null}
               {today ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1">
                   Day {today.dayIndex}
                 </span>
               ) : null}
               {days !== null ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-1">
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1">
                   {days}d to exam
                 </span>
               ) : null}
             </div>
           </div>
-          <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-teal-700 group-hover:translate-x-0.5 transition">
+          <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink text-white group-hover:bg-indigo-700 group-hover:translate-x-0.5 transition">
             <ArrowUpRight className="h-4 w-4" />
           </span>
         </div>
@@ -367,7 +334,7 @@ function PracticeGrid() {
     {
       href: "/write",
       label: "Writing",
-      hint: "Band-scored essays",
+      hint: "Essays",
       icon: <PenLine className="h-5 w-5" />,
       iconBg: "bg-amber-100",
       iconText: "text-amber-700",
@@ -376,16 +343,16 @@ function PracticeGrid() {
     {
       href: "/read",
       label: "Reading",
-      hint: "Tap-to-define passages",
+      hint: "Passages",
       icon: <BookOpen className="h-5 w-5" />,
-      iconBg: "bg-emerald-100",
-      iconText: "text-emerald-700",
-      accent: "from-emerald-100/80",
+      iconBg: "bg-sky-100",
+      iconText: "text-sky-700",
+      accent: "from-sky-100/80",
     },
     {
       href: "/speak",
       label: "Speaking",
-      hint: "Voice mock interview",
+      hint: "Practice",
       icon: <Mic className="h-5 w-5" />,
       iconBg: "bg-violet-100",
       iconText: "text-violet-700",
@@ -394,7 +361,7 @@ function PracticeGrid() {
     {
       href: "/review",
       label: "Vocab",
-      hint: "Spaced repetition",
+      hint: "Review",
       icon: <Sparkles className="h-5 w-5" />,
       iconBg: "bg-rose-100",
       iconText: "text-rose-700",
@@ -416,7 +383,7 @@ function PracticeGrid() {
             key={it.href}
             href={it.href}
             className={cn(
-              "group relative rounded-[24px] bg-white/88 p-5 border border-white shadow-soft active:scale-[0.98] transition overflow-hidden min-h-[140px] flex flex-col justify-between hover:-translate-y-0.5 hover:shadow-pop",
+              "group relative rounded-[22px] bg-white/88 p-4 border border-white shadow-soft active:scale-[0.98] transition overflow-hidden min-h-[116px] flex flex-col justify-between hover:-translate-y-0.5 hover:shadow-pop",
             )}
           >
             <div
@@ -436,7 +403,7 @@ function PracticeGrid() {
               {it.icon}
             </div>
             <div>
-              <div className="text-lg font-semibold tracking-tight">{it.label}</div>
+              <div className="text-base font-semibold tracking-tight">{it.label}</div>
               <div className="text-xs text-ink/55 mt-0.5">{it.hint}</div>
             </div>
           </Link>
@@ -466,9 +433,7 @@ function MockTestCTA() {
               New · Mock test
             </div>
             <h3 className="mt-1 text-lg font-bold tracking-tight">Take the full 4-section mock</h3>
-            <div className="mt-0.5 text-[11px] text-white/60">
-              Strict timer, no pause — Listening → Reading → Writing → Speaking
-            </div>
+            <div className="mt-0.5 text-[11px] text-white/60">Full IELTS simulation</div>
           </div>
           <ArrowUpRight className="h-5 w-5 text-white/70 group-hover:translate-x-0.5 transition" />
         </div>
@@ -516,7 +481,7 @@ function GamifiedProgressCard({
 
   return (
     <section className="mt-5">
-      <div className="overflow-hidden rounded-[28px] bg-ink p-5 text-white shadow-pop">
+      <div className="overflow-hidden rounded-[28px] bg-[#121225] p-5 text-white shadow-pop">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xl font-bold tracking-tight">Your progress</div>
@@ -543,38 +508,33 @@ function GamifiedProgressCard({
                   </span>
                   <span className="text-xl font-semibold text-white/45">/{formatBand(targetBand)}</span>
                 </div>
-                {latest == null ? (
-                  <div className="mt-1 text-xs text-white/48">Complete a mock to calibrate your band</div>
-                ) : delta != null && delta !== 0 ? (
+                {delta != null && delta !== 0 ? (
                   <div
                     className={cn(
                       "mt-1 text-xs font-semibold",
-                      delta > 0 ? "text-emerald-300" : "text-rose-300",
+                      delta > 0 ? "text-sky-300" : "text-rose-300",
                     )}
                   >
                     {(delta > 0 ? "+" : "") + delta.toFixed(1)} from last mock
                   </div>
-                ) : (
-                  <div className="mt-1 text-xs text-white/48">Keep collecting checkpoint stars</div>
-                )}
+                ) : null}
               </div>
               <div className="rounded-2xl bg-white/8 px-3 py-2 text-right">
                 <div className="flex items-center justify-end gap-1 text-amber-300">
                   <Star className="h-4 w-4 fill-amber-300" />
                   <span className="text-lg font-bold tabular-nums">{stars}</span>
                 </div>
-                <div className="mt-0.5 text-[10px] text-white/45">Reward stars</div>
               </div>
             </div>
 
             <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/12">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-teal-300 via-sky-300 to-violet-300"
+                className="h-full rounded-full bg-gradient-to-r from-sky-300 via-indigo-300 to-violet-300"
                 style={{ width: `${Math.max(8, bandProgress * 100)}%` }}
               />
             </div>
 
-            <div className="mt-5 rounded-[22px] bg-gradient-to-br from-teal-500 via-indigo-500 to-violet-600 p-4">
+            <div className="mt-5 rounded-[22px] bg-gradient-to-br from-sky-500 via-indigo-500 to-violet-600 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-bold">Your path to Band {formatBand(targetBand)}</div>
                 <div className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-700">
@@ -618,19 +578,12 @@ function GamifiedProgressCard({
                         <div className="mt-1 text-[10px] font-bold leading-none">
                           {formatBand(step)}
                         </div>
-                        <div className="mt-1 max-w-[64px] truncate text-[9px] font-semibold leading-none text-white/65">
-                          {isCurrent ? "You" : isGoal ? "Goal" : complete ? "Done" : "Next"}
-                        </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="mt-1 flex items-center justify-between text-[10px] font-semibold text-white/70">
-                <span>Runner Level {Math.max(1, Math.floor(stars / 500))}</span>
-                <span>{Math.round(bandProgress * 100)}% to target</span>
-              </div>
             </div>
           </>
         )}
@@ -664,20 +617,20 @@ function clampBand(value: number): number {
   return Math.max(0, Math.min(9, value));
 }
 
-function iconForSkill(skill: string): React.ReactNode {
+function iconForSkill(skill: string, className = "h-5 w-5"): React.ReactNode {
   switch (skill) {
     case "writing":
-      return <PenLine className="h-5 w-5" />;
+      return <PenLine className={className} />;
     case "reading":
-      return <BookOpen className="h-5 w-5" />;
+      return <BookOpen className={className} />;
     case "speaking":
-      return <Mic className="h-5 w-5" />;
+      return <Mic className={className} />;
     case "vocabulary":
-      return <Sparkles className="h-5 w-5" />;
+      return <Sparkles className={className} />;
     case "listening":
-      return <Play className="h-5 w-5" />;
+      return <Play className={className} />;
     default:
-      return <ClipboardCheck className="h-5 w-5" />;
+      return <ClipboardCheck className={className} />;
   }
 }
 
@@ -744,7 +697,7 @@ function RecentStrip({
                     "h-9 w-9 rounded-xl flex items-center justify-center shrink-0",
                     it.kind === "writing"
                       ? "bg-rose-100 text-rose-700"
-                      : "bg-emerald-100 text-emerald-700",
+                      : "bg-sky-100 text-sky-700",
                   )}
                 >
                   {it.kind === "writing" ? (
